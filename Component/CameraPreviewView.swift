@@ -1,8 +1,7 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import SwiftUI
 
-// SwiftUI wrapper for AVCaptureVideoPreviewLayer.
-// 使用 SwiftUI 包装相机预览层，让 SwiftUI 直接显示相机画面。
+// SwiftUI 桥接：用 AVCaptureVideoPreviewLayer 显示相机画面
 struct CameraPreviewView: UIViewRepresentable {
     let session: AVCaptureSession
 
@@ -20,8 +19,7 @@ struct CameraPreviewView: UIViewRepresentable {
     }
 }
 
-// Backing UIView that hosts AVCaptureVideoPreviewLayer.
-// 提供真正的预览层容器，SwiftUI 通过它显示相机画面。
+// 预览层容器
 final class PreviewView: UIView {
     override class var layerClass: AnyClass {
         AVCaptureVideoPreviewLayer.self

@@ -3,6 +3,7 @@ import SwiftUI
 // 顶部状态栏区域
 struct TopBarView: View {
     let height: CGFloat
+    @ObservedObject var cameraController: CameraSessionController
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -15,7 +16,14 @@ struct TopBarView: View {
 
                 ZStack {
                     HStack {
-                        CircularIconButtonView(systemName: "bolt.slash")
+                        // 闪光灯按钮（循环切换模式）
+                        Button {
+                            cameraController.cycleFlashMode()
+                        } label: {
+                            CircularIconButtonView(systemName: flashIconName)
+                        }
+                        .disabled(!cameraController.isFlashSupported || cameraController.captureMode == .video)
+                        .opacity(cameraController.isFlashSupported && cameraController.captureMode == .photo ? 1.0 : 0.4)
 
                         Spacer()
 
@@ -23,7 +31,7 @@ struct TopBarView: View {
                     }
 
                     // 中间分段控件固定居中，不受左右宽度影响
-                    SegmentedModeView()
+                    SegmentedModeView(captureMode: $cameraController.captureMode)
                 }
                 .padding(.horizontal, 16)
 
@@ -40,24 +48,53 @@ struct TopBarView: View {
         .frame(maxWidth: .infinity)
         .background(Color.black)
     }
+
+    private var flashIconName: String {
+        guard cameraController.isFlashSupported, cameraController.captureMode == .photo else {
+            return "bolt.slash"
+        }
+        switch cameraController.flashMode {
+        case .off:
+            return "bolt.slash"
+        case .on:
+            return "bolt.fill"
+        case .auto:
+            return "bolt.badge.a"
+        }
+    }
 }
 
-// 顶部分段控件（视频 / 动态）
+// 顶部分段控件（视频 / 照片）
 struct SegmentedModeView: View {
+    @Binding var captureMode: CameraSessionController.CaptureMode
+
     var body: some View {
         HStack(spacing: 6) {
-            Text("视频")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.white.opacity(0.6))
+            Button {
+                captureMode = .video
+            } label: {
+                Text("视频")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(captureMode == .video ? .white : .white.opacity(0.6))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(captureMode == .video ? Color.black.opacity(0.6) : Color.clear)
+                    .cornerRadius(10)
+            }
+            .buttonStyle(.plain)
 
-            // 默认选中“动态”
-            Text("动态")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color.black.opacity(0.6))
-                .cornerRadius(10)
+            Button {
+                captureMode = .photo
+            } label: {
+                Text("照片")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(captureMode == .photo ? .white : .white.opacity(0.6))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(captureMode == .photo ? Color.black.opacity(0.6) : Color.clear)
+                    .cornerRadius(10)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 8)

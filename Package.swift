@@ -34,7 +34,12 @@ let package = Package(
             ],
             capabilities: [
                 .camera(purposeString: "Need camera"),
-                .photoLibrary(purposeString: "Need Photo Library")
+                .photoLibrary(purposeString: "Need Photo Library"),
+                .fileAccess(.userSelectedFiles, mode: .readWrite),
+                .fileAccess(.downloadsFolder, mode: .readWrite),
+                .fileAccess(.pictureFolder, mode: .readWrite),
+                .fileAccess(.musicFolder, mode: .readWrite),
+                .fileAccess(.moviesFolder, mode: .readWrite)
             ],
             appCategory: .photography
         )

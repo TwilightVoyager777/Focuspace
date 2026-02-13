@@ -2,6 +2,8 @@ import SwiftUI
 
 // 底部工具条（C1）
 struct BottomC1ToolsRowView: View {
+    let cameraController: CameraSessionController
+
     // 工具列表
     private let items: [ToolItem] = [
         ToolItem(title: "前置", systemName: "camera.rotate"),
@@ -23,11 +25,32 @@ struct BottomC1ToolsRowView: View {
                     ToolButtonView(
                         title: item.title,
                         systemName: item.systemName,
-                        isSelected: item.title == selectedTitle
+                        isSelected: isItemSelected(item),
+                        action: {
+                            handleTap(for: item.title)
+                        }
                     )
                 }
             }
             .padding(.horizontal, 4)
+        }
+    }
+
+    private func isItemSelected(_ item: ToolItem) -> Bool {
+        if item.title == "对焦" {
+            return cameraController.isFocusLocked
+        }
+        return item.title == selectedTitle
+    }
+
+    private func handleTap(for title: String) {
+        switch title {
+        case "前置":
+            cameraController.switchCamera()
+        case "对焦":
+            cameraController.toggleFocusLock()
+        default:
+            break
         }
     }
 }
@@ -44,18 +67,22 @@ struct ToolButtonView: View {
     let title: String
     let systemName: String
     let isSelected: Bool
+    let action: () -> Void
 
     var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: systemName)
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(isSelected ? Color.yellow.opacity(0.9) : Color.white.opacity(0.8))
-                .frame(width: 28, height: 24)
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: systemName)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(isSelected ? Color.yellow.opacity(0.9) : Color.white.opacity(0.8))
+                    .frame(width: 28, height: 24)
 
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(isSelected ? Color.yellow.opacity(0.9) : Color.white.opacity(0.7))
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(isSelected ? Color.yellow.opacity(0.9) : Color.white.opacity(0.7))
+            }
+            .frame(minWidth: 48)
         }
-        .frame(minWidth: 48)
+        .buttonStyle(.plain)
     }
 }

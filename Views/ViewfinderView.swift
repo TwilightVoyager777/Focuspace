@@ -5,12 +5,19 @@ struct ViewfinderView: View {
     // 是否显示网格线（构图辅助）
     private let showsGrid: Bool = true
 
+    // 相机会话控制器（权限 + 会话管理）
+    @ObservedObject var cameraController: CameraSessionController
+
     // 当前缩放值（双指捏合实时更新）
     @State private var zoomValue: CGFloat = 1.0
     // 基准缩放值（用于累计多次捏合）
     @State private var baseZoom: CGFloat = 1.0
     // 缩放提示胶囊显示控制
     @State private var showZoomBadge: Bool = false
+
+    // 点击对焦提示
+    @State private var focusPoint: CGPoint = .zero
+    @State private var showFocusIndicator: Bool = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -23,21 +30,104 @@ struct ViewfinderView: View {
                     Spacer()
 
                     ZStack {
-                        // 取景区域占位：中性灰渐变
-                        LinearGradient(
-                            colors: [Color(.systemGray4), Color(.systemGray2)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
+                        // 相机预览层（授权后显示真实画面）
+                        if cameraController.state == .authorized || cameraController.state == .running {
+                            CameraPreviewView(session: cameraController.session)
+                        } else {
+                            Color.black
+                        }
 
                         // 三等分网格线，可用于构图
                         if showsGrid {
                             GridOverlayView()
                                 .padding(1)
                         }
+
+                        // 未授权或不可用时提示文本
+                        if cameraController.state == .denied || cameraController.state == .unavailable {
+                            VStack(spacing: 6) {
+                                Text("Camera access required")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.white)
+
+                                #if targetEnvironment(simulator)
+                                if cameraController.state == .unavailable {
+                                    Text("Running on Simulator")
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(.white.opacity(0.7))
+                                }
+                                #endif
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.black.opacity(0.7))
+                            .clipShape(Capsule(style: .continuous))
+                        }
+
+                        // 录制中提示
+                        if cameraController.isRecording {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(Color.red)
+                                    .frame(width: 6, height: 6)
+                                Text("REC")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(.red)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.black.opacity(0.7))
+                            .clipShape(Capsule(style: .continuous))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .padding(.top, 10)
+                            .padding(.leading, 10)
+                        }
+
+                        VStack {
+                            if cameraController.captureMode == .video && cameraController.isRecording {
+                                HStack(spacing: 8) {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                    Text(cameraController.recordingDurationText)
+                                        .font(.system(size: 16, weight: .bold))
+                                        .foregroundColor(.red)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 12)
+                            }
+                            Spacer()
+                        }
+
+                        // 拍照/保存出错提示
+                        if let message = cameraController.lastErrorMessage,
+                           cameraController.state == .running || cameraController.state == .authorized {
+                            Text(message)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.black.opacity(0.7))
+                                .clipShape(Capsule(style: .continuous))
+                                .padding(.bottom, 10)
+                                .frame(maxHeight: .infinity, alignment: .bottom)
+                        }
+
+                        // 快门黑闪（只覆盖取景框）
+                        Rectangle()
+                            .fill(Color.black)
+                            .opacity(cameraController.isShutterFlashing ? 1.0 : 0.0)
+                            .animation(.easeInOut(duration: 0.08), value: cameraController.isShutterFlashing)
+
+                        // 点击对焦提示框
+                        if showFocusIndicator {
+                            Circle()
+                                .stroke(Color.yellow.opacity(0.9), lineWidth: 2)
+                                .frame(width: 70, height: 70)
+                                .position(focusPoint)
+                                .transition(.opacity)
+                        }
                     }
-                    // 用缩放比例模拟取景放大效果
-                    .scaleEffect(zoomValue)
                     .aspectRatio(3.0 / 4.0, contentMode: .fit)
                     .clipped()
                     // 捏合时显示当前倍率提示
@@ -54,16 +144,52 @@ struct ViewfinderView: View {
                                 .transition(.opacity)
                         }
                     }
+                    // 点击对焦（获取点击位置）
+                    .overlay {
+                        GeometryReader { geo in
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .gesture(
+                                    DragGesture(minimumDistance: 0)
+                                        .onEnded { value in
+                                            let size = geo.size
+                                            let location = value.location
+                                            let normalized = CGPoint(
+                                                x: clamp(location.x / size.width, min: 0, max: 1),
+                                                y: clamp(location.y / size.height, min: 0, max: 1)
+                                            )
+
+                                            focusPoint = location
+                                            showFocusIndicator = true
+                                            withAnimation(.easeOut(duration: 0.25)) {
+                                                showFocusIndicator = true
+                                            }
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                                                withAnimation(.easeOut(duration: 0.2)) {
+                                                    showFocusIndicator = false
+                                                }
+                                            }
+
+                                            cameraController.focus(at: normalized)
+                                        }
+                                )
+                        }
+                    }
                     // 双指捏合缩放（无 UI 控件）
-                    .gesture(
+                    .simultaneousGesture(
                         MagnificationGesture()
                             .onChanged { value in
                                 showZoomBadge = true
                                 let updated = baseZoom * value
-                                zoomValue = clamp(updated, min: 0.5, max: 8.0)
+                                let minZoom = cameraController.minUIZoom
+                                zoomValue = clamp(updated, min: minZoom, max: 8.0)
+                                cameraController.setZoomFactorWithinCurrentLens(zoomValue)
                             }
                             .onEnded { _ in
+                                let minZoom = cameraController.minUIZoom
+                                zoomValue = clamp(zoomValue, min: minZoom, max: 8.0)
                                 baseZoom = zoomValue
+                                cameraController.finalizeZoom(zoomValue)
                                 withAnimation(.easeOut(duration: 0.25)) {
                                     showZoomBadge = false
                                 }
@@ -73,6 +199,14 @@ struct ViewfinderView: View {
                     Spacer()
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
+            }
+            .task {
+                await cameraController.requestAuthorizationIfNeeded()
+                cameraController.configureIfNeeded()
+                cameraController.startSession()
+            }
+            .onDisappear {
+                cameraController.stopSession()
             }
         }
     }

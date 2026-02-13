@@ -47,6 +47,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     @Published var captureMode: CaptureMode = .photo
     @Published var isRecording: Bool = false
     @Published var recordingDuration: TimeInterval = 0
+    @Published private(set) var cameraPosition: AVCaptureDevice.Position = .back
 
     private let photoOutput: AVCapturePhotoOutput = AVCapturePhotoOutput()
     private let movieOutput: AVCaptureMovieFileOutput = AVCaptureMovieFileOutput()
@@ -123,10 +124,12 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 self.session.addOutput(self.movieOutput)
             }
 
+            self.configureMovieOutputConnection()
             self.session.commitConfiguration()
             self.isConfigured = true
             self.updateMinUIZoomForCurrentPosition()
             self.updateFlashSupport(for: device)
+            self.setCameraPosition(self.currentPosition)
         }
     }
 
@@ -209,6 +212,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 self.setCaptureResult(success: false, message: "Video connection unavailable")
                 return
             }
+            self.configureMovieOutputConnection()
 
             self.requestMicrophoneAccessIfNeeded { granted in
                 self.sessionQueue.async { [weak self] in
@@ -254,6 +258,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 self.movieOutput.stopRecording()
             } else {
                 let outputURL = self.makeVideoURL()
+                self.configureMovieOutputConnection()
                 self.movieOutput.startRecording(to: outputURL, recordingDelegate: self)
 
                 DispatchQueue.main.async {
@@ -300,6 +305,8 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 self.session.commitConfiguration()
                 self.updateMinUIZoomForCurrentPosition()
                 self.updateFlashSupport(for: newDevice)
+                self.configureMovieOutputConnection()
+                self.setCameraPosition(newPosition)
             } catch {
                 self.session.beginConfiguration()
                 if !self.session.inputs.contains(currentInput) {
@@ -456,11 +463,13 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 currentPosition = .back
                 setBackLens(lens)
                 updateFlashSupport(for: device)
+                setCameraPosition(.back)
             } else {
                 session.addInput(currentInput)
             }
 
             session.commitConfiguration()
+            configureMovieOutputConnection()
         } catch {
             session.beginConfiguration()
             if !session.inputs.contains(currentInput) {
@@ -595,6 +604,26 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
         return DispatchQueue.main.sync {
             isFlashSupported
+        }
+    }
+
+    private func configureMovieOutputConnection() {
+        guard let connection = movieOutput.connection(with: .video) else { return }
+        if connection.isVideoOrientationSupported {
+            connection.videoOrientation = .portrait
+        }
+        if connection.isVideoStabilizationSupported {
+            connection.preferredVideoStabilizationMode = .auto
+        }
+        if connection.isVideoMirroringSupported {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = (currentPosition == .front)
+        }
+    }
+
+    private func setCameraPosition(_ position: AVCaptureDevice.Position) {
+        DispatchQueue.main.async {
+            self.cameraPosition = position
         }
     }
 

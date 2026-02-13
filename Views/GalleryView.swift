@@ -84,6 +84,7 @@ private struct GalleryDetailView: View {
 
     @State private var exportMessage: String? = nil
     @State private var player: AVPlayer? = nil
+    @State private var videoAspectRatio: CGFloat = 9.0 / 16.0
 
     var body: some View {
         VStack(spacing: 16) {
@@ -96,10 +97,12 @@ private struct GalleryDetailView: View {
             case .video(let url):
                 VideoPlayer(player: player)
                     .frame(maxWidth: .infinity, maxHeight: 400)
+                    .aspectRatio(videoAspectRatio, contentMode: .fit)
                     .onAppear {
                         if player == nil {
                             player = AVPlayer(url: url)
                         }
+                        updateVideoAspectRatio(for: url)
                         player?.play()
                     }
                     .onDisappear {
@@ -175,6 +178,21 @@ private struct GalleryDetailView: View {
                     }
                 }
             })
+        }
+    }
+
+    private func updateVideoAspectRatio(for url: URL) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let asset = AVAsset(url: url)
+            guard let track = asset.tracks(withMediaType: .video).first else { return }
+            let size = track.naturalSize.applying(track.preferredTransform)
+            let width = abs(size.width)
+            let height = abs(size.height)
+            guard height > 0 else { return }
+            let ratio = width / height
+            DispatchQueue.main.async {
+                videoAspectRatio = ratio
+            }
         }
     }
 }

@@ -21,18 +21,27 @@ struct ViewfinderView: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let previewHorizontalCrop: CGFloat = (cameraController.cameraPosition == .front) ? 1.30 : 1.0
             ZStack {
                 // 中间区域用黑色作为留白背景（letterboxing）
                 Color.black
 
                 // 4:3 取景区域居中显示
+                let viewfinderWidth = proxy.size.width
+                let viewfinderHeight = proxy.size.width * 4.0 / 3.0
+
                 VStack(spacing: 0) {
                     Spacer()
 
                     ZStack {
                         // 相机预览层（授权后显示真实画面）
                         if cameraController.state == .authorized || cameraController.state == .running {
-                            CameraPreviewView(session: cameraController.session)
+                            CameraPreviewView(
+                                session: cameraController.session,
+                                isFrontCamera: cameraController.cameraPosition == .front
+                            )
+                            .scaleEffect(x: previewHorizontalCrop, y: 1.0, anchor: .center)
+                            .clipped()
                         } else {
                             Color.black
                         }
@@ -128,7 +137,7 @@ struct ViewfinderView: View {
                                 .transition(.opacity)
                         }
                     }
-                    .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                    .frame(width: viewfinderWidth, height: viewfinderHeight)
                     .clipped()
                     // 捏合时显示当前倍率提示
                     .overlay(alignment: .top) {

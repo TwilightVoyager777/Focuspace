@@ -433,6 +433,7 @@ private struct MediaPreviewView: View {
     let onDelete: (Set<UUID>) -> Void
 
     @State private var player: AVPlayer? = nil
+    @State private var videoAspectRatio: CGFloat = 9.0 / 16.0
 
     var body: some View {
         ZStack {
@@ -476,11 +477,13 @@ private struct MediaPreviewView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .video(let url):
                     VideoPlayer(player: player)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(maxWidth: .infinity)
+                        .aspectRatio(videoAspectRatio, contentMode: .fit)
                         .onAppear {
                             if player == nil {
                                 player = AVPlayer(url: url)
                             }
+                            updateVideoAspectRatio(for: url)
                             player?.play()
                         }
                         .onDisappear {
@@ -492,5 +495,20 @@ private struct MediaPreviewView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private func updateVideoAspectRatio(for url: URL) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let asset = AVAsset(url: url)
+            guard let track = asset.tracks(withMediaType: .video).first else { return }
+            let size = track.naturalSize.applying(track.preferredTransform)
+            let width = abs(size.width)
+            let height = abs(size.height)
+            guard height > 0 else { return }
+            let ratio = width / height
+            DispatchQueue.main.async {
+                videoAspectRatio = ratio
+            }
+        }
     }
 }

@@ -57,6 +57,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     private let movieOutput: AVCaptureMovieFileOutput = AVCaptureMovieFileOutput()
     // 串行队列：所有会话/输出操作都必须在这里执行，避免 libdispatch 断言崩溃
     private let sessionQueue: DispatchQueue = DispatchQueue(label: "camera.session.queue", qos: .userInitiated)
+    private let sessionQueueKey: DispatchSpecificKey<Void> = DispatchSpecificKey<Void>()
     private var isConfigured: Bool = false
     private let mediaLibrary: LocalMediaLibrary
     private var currentVideoInput: AVCaptureDeviceInput? = nil
@@ -71,6 +72,86 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     init(library: LocalMediaLibrary) {
         self.mediaLibrary = library
         super.init()
+        sessionQueue.setSpecific(key: sessionQueueKey, value: ())
+    }
+
+    var exposedISORange: ClosedRange<Float>? {
+        readDeviceValue { device in
+            let format = device.activeFormat
+            return format.minISO...format.maxISO
+        }
+    }
+
+    var exposedEVRange: ClosedRange<Float>? {
+        readDeviceValue { device in
+            device.minExposureTargetBias...device.maxExposureTargetBias
+        }
+    }
+
+    func currentISOValue() -> Float? {
+        readDeviceValue { device in
+            device.iso
+        }
+    }
+
+    func currentExposureDurationSeconds() -> Double? {
+        readDeviceValue { device in
+            CMTimeGetSeconds(device.exposureDuration)
+        }
+    }
+
+    func currentExposureBias() -> Float? {
+        readDeviceValue { device in
+            device.exposureTargetBias
+        }
+    }
+
+    func currentWhiteBalanceTemperature() -> Float? {
+        readDeviceValue { device in
+            let values = device.temperatureAndTintValues(for: device.deviceWhiteBalanceGains)
+            return values.temperature
+        }
+    }
+
+    func getCurrentISO(_ completion: @escaping (Float) -> Void) {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.currentVideoInput?.device else { return }
+            let value = device.iso
+            DispatchQueue.main.async {
+                completion(value)
+            }
+        }
+    }
+
+    func getCurrentShutterSeconds(_ completion: @escaping (Double) -> Void) {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.currentVideoInput?.device else { return }
+            let value = CMTimeGetSeconds(device.exposureDuration)
+            DispatchQueue.main.async {
+                completion(value)
+            }
+        }
+    }
+
+    func getCurrentEV(_ completion: @escaping (Float) -> Void) {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.currentVideoInput?.device else { return }
+            let value = device.exposureTargetBias
+            DispatchQueue.main.async {
+                completion(value)
+            }
+        }
+    }
+
+    func getCurrentWBTemperature(_ completion: @escaping (Float) -> Void) {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.currentVideoInput?.device else { return }
+            let values = device.temperatureAndTintValues(for: device.deviceWhiteBalanceGains)
+            let temperature = values.temperature
+            DispatchQueue.main.async {
+                completion(temperature)
+            }
+        }
     }
 
     func requestAuthorizationIfNeeded() async {
@@ -435,6 +516,121 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         }
     }
 
+    func setISO(_ iso: Float?) {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            guard let device = self.currentVideoInput?.device else { return }
+
+            do {
+                try device.lockForConfiguration()
+                defer { device.unlockForConfiguration() }
+
+                if let iso {
+                    guard device.isExposureModeSupported(.custom) else {
+                        if device.isExposureModeSupported(.continuousAutoExposure) {
+                            device.exposureMode = .continuousAutoExposure
+                        }
+                        return
+                    }
+                    let clampedISO = self.clampISO(iso, device: device)
+                    let duration = device.exposureDuration
+                    device.setExposureModeCustom(duration: duration, iso: clampedISO, completionHandler: nil)
+                } else {
+                    if device.isExposureModeSupported(.continuousAutoExposure) {
+                        device.exposureMode = .continuousAutoExposure
+                    }
+                }
+            } catch {
+                // ignore
+            }
+        }
+    }
+
+    func setShutter(durationSeconds: Double?) {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            guard let device = self.currentVideoInput?.device else { return }
+
+            do {
+                try device.lockForConfiguration()
+                defer { device.unlockForConfiguration() }
+
+                if let durationSeconds {
+                    guard device.isExposureModeSupported(.custom) else {
+                        if device.isExposureModeSupported(.continuousAutoExposure) {
+                            device.exposureMode = .continuousAutoExposure
+                        }
+                        return
+                    }
+                    let requested = CMTimeMakeWithSeconds(durationSeconds, preferredTimescale: 1_000_000_000)
+                    let clampedDuration = self.clampExposureDuration(requested, device: device)
+                    let iso = device.iso
+                    device.setExposureModeCustom(duration: clampedDuration, iso: iso, completionHandler: nil)
+                } else {
+                    if device.isExposureModeSupported(.continuousAutoExposure) {
+                        device.exposureMode = .continuousAutoExposure
+                    }
+                }
+            } catch {
+                // ignore
+            }
+        }
+    }
+
+    func setExposureBias(_ bias: Float?) {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            guard let device = self.currentVideoInput?.device else { return }
+
+            do {
+                try device.lockForConfiguration()
+                defer { device.unlockForConfiguration() }
+
+                let target = bias ?? 0
+                let clamped = self.clampExposureBias(target, device: device)
+                device.setExposureTargetBias(clamped, completionHandler: nil)
+            } catch {
+                // ignore
+            }
+        }
+    }
+
+    func setWhiteBalance(temperature: Int?, tint: Int?) {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            guard let device = self.currentVideoInput?.device else { return }
+
+            do {
+                try device.lockForConfiguration()
+                defer { device.unlockForConfiguration() }
+
+                guard let temperature, let tint else {
+                    if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                        device.whiteBalanceMode = .continuousAutoWhiteBalance
+                    }
+                    return
+                }
+
+                guard device.isWhiteBalanceModeSupported(.locked) else {
+                    if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                        device.whiteBalanceMode = .continuousAutoWhiteBalance
+                    }
+                    return
+                }
+
+                let values = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(
+                    temperature: Float(temperature),
+                    tint: Float(tint)
+                )
+                let gains = device.deviceWhiteBalanceGains(for: values)
+                let clampedGains = self.clampWhiteBalanceGains(gains, maxGain: device.maxWhiteBalanceGain)
+                device.setWhiteBalanceModeLocked(with: clampedGains, completionHandler: nil)
+            } catch {
+                // ignore
+            }
+        }
+    }
+
     // 拍摄中连续设置变焦（不切镜头）
     func setZoomFactorWithinCurrentLens(_ uiZoom: CGFloat) {
         sessionQueue.async { [weak self] in
@@ -543,6 +739,54 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         if !supported {
             setFlashMode(.off)
         }
+    }
+
+    private func readDeviceValue<T>(_ read: @escaping (AVCaptureDevice) -> T?) -> T? {
+        let block = { [weak self] () -> T? in
+            guard let self, let device = self.currentVideoInput?.device else { return nil }
+            return read(device)
+        }
+        if DispatchQueue.getSpecific(key: sessionQueueKey) != nil {
+            return block()
+        }
+        return sessionQueue.sync {
+            block()
+        }
+    }
+
+    private func clampISO(_ value: Float, device: AVCaptureDevice) -> Float {
+        let minISO = device.activeFormat.minISO
+        let maxISO = device.activeFormat.maxISO
+        return max(minISO, min(maxISO, value))
+    }
+
+    private func clampExposureDuration(_ value: CMTime, device: AVCaptureDevice) -> CMTime {
+        let minDuration = device.activeFormat.minExposureDuration
+        let maxDuration = device.activeFormat.maxExposureDuration
+        if CMTimeCompare(value, minDuration) < 0 {
+            return minDuration
+        }
+        if CMTimeCompare(value, maxDuration) > 0 {
+            return maxDuration
+        }
+        return value
+    }
+
+    private func clampExposureBias(_ value: Float, device: AVCaptureDevice) -> Float {
+        let minBias = device.minExposureTargetBias
+        let maxBias = device.maxExposureTargetBias
+        return max(minBias, min(maxBias, value))
+    }
+
+    private func clampWhiteBalanceGains(
+        _ gains: AVCaptureDevice.WhiteBalanceGains,
+        maxGain: Float
+    ) -> AVCaptureDevice.WhiteBalanceGains {
+        var clamped = gains
+        clamped.redGain = max(1.0, min(maxGain, gains.redGain))
+        clamped.greenGain = max(1.0, min(maxGain, gains.greenGain))
+        clamped.blueGain = max(1.0, min(maxGain, gains.blueGain))
+        return clamped
     }
 
     private func flashModeToAV(_ mode: PhotoFlashMode) -> AVCaptureDevice.FlashMode {

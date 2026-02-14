@@ -1,10 +1,33 @@
 import SwiftUI
 
 // 底部控制区域
+enum BottomPanel {
+    case tools
+    case templates
+}
+
 struct BottomBarView: View {
     let height: CGFloat
     let cameraController: CameraSessionController
     let latestThumbnail: UIImage?
+
+    @State private var bottomPanel: BottomPanel = .tools
+    @State private var selectedTemplateID: String = "symmetry"
+
+    private let compositionOverlay = CompositionOverlayController()
+    private let topRowHeight: CGFloat = 110
+
+    private var panelOffset: CGFloat {
+        bottomPanel == .templates ? 20 : 0
+    }
+
+    private var bottomControlsOffset: CGFloat {
+        -35 + (bottomPanel == .templates ? 12 : 0)
+    }
+
+    private var slideAnimation: Animation {
+        .easeInOut(duration: 0.35)
+    }
 
     var body: some View {
         ZStack {
@@ -13,12 +36,35 @@ struct BottomBarView: View {
 
             VStack(spacing: 18) {
                 // 工具条（可横向滚动）
-                BottomC1ToolsRowView(cameraController: cameraController)
+                ZStack {
+                    if bottomPanel == .tools {
+                        BottomC1ToolsRowView(cameraController: cameraController)
+                    } else {
+                        TemplateRowView(
+                            selectedTemplateID: $selectedTemplateID,
+                            onSelect: { template in
+                                selectedTemplateID = template.id
+                                compositionOverlay.setTemplate(template.id)
+                            }
+                        )
+                    }
+                }
+                .frame(height: topRowHeight)
+                .clipped()
+                .offset(y: panelOffset - 6)
+                .animation(slideAnimation, value: bottomPanel)
                 // 下方控制行：缩略图 + 快门 + 切换镜头
                 BottomControlsView(
                     cameraController: cameraController,
-                    latestThumbnail: latestThumbnail
+                    latestThumbnail: latestThumbnail,
+                    onToggleBottomPanel: {
+                        withAnimation(slideAnimation) {
+                            bottomPanel = bottomPanel == .templates ? .tools : .templates
+                        }
+                    }
                 )
+                .offset(y: panelOffset + bottomControlsOffset)
+                .animation(slideAnimation, value: bottomPanel)
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -34,6 +80,7 @@ struct BottomBarView: View {
 struct BottomControlsView: View {
     let cameraController: CameraSessionController
     let latestThumbnail: UIImage?
+    let onToggleBottomPanel: () -> Void
 
     var body: some View {
         ZStack {
@@ -43,7 +90,7 @@ struct BottomControlsView: View {
 
                 Spacer()
 
-                CameraSwitchButtonView()
+                TemplateToggleButtonView(action: onToggleBottomPanel)
             }
 
             // 中间快门按钮叠加，保证始终居中
@@ -120,12 +167,22 @@ struct RecentThumbnailView: View {
     }
 }
 
-// 右侧镜头切换按钮
-struct CameraSwitchButtonView: View {
+struct CompositionOverlayController {
+    func setTemplate(_ id: String) {
+    }
+}
+
+// 右侧智能模版入口按钮
+struct TemplateToggleButtonView: View {
+    let action: () -> Void
+
     var body: some View {
-        Image(systemName: "arrow.triangle.2.circlepath.camera")
-            .font(.system(size: 22, weight: .semibold))
-            .foregroundColor(.white)
-            .frame(width: 49, height: 49)
+        Button(action: action) {
+            Image(systemName: "sparkles.rectangle.stack")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 49, height: 49)
+        }
+        .buttonStyle(.plain)
     }
 }

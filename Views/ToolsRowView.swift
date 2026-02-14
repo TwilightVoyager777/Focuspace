@@ -49,8 +49,7 @@ struct BottomC1ToolsRowView: View {
         }
 
         list.append(contentsOf: [
-            ToolItem(title: "水平仪", systemName: "ruler", isEnabled: levelEnabled),
-            ToolItem(title: "设置", systemName: "gearshape")
+            ToolItem(title: "水平仪", systemName: "ruler", isEnabled: levelEnabled)
         ])
 
         return list

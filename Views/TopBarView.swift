@@ -27,7 +27,12 @@ struct TopBarView: View {
 
                         Spacer()
 
-                        CircularIconButtonView(systemName: "ellipsis")
+                        NavigationLink {
+                            SettingsView()
+                        } label: {
+                            CircularIconButtonView(systemName: "ellipsis")
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     // 中间分段控件固定居中，不受左右宽度影响

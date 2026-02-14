@@ -49,6 +49,8 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     @Published var recordingDuration: TimeInterval = 0
     @Published var isModeSwitching: Bool = false
     @Published var isCameraSwitching: Bool = false
+    @Published var previewFreeze: Bool = false
+    @Published var switchSnapshot: UIImage? = nil
     @Published private(set) var cameraPosition: AVCaptureDevice.Position = .back
 
     private let photoOutput: AVCapturePhotoOutput = AVCapturePhotoOutput()
@@ -64,6 +66,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     private var recordingTimer: Timer? = nil
 
     var onPreviewConnectionUpdate: ((AVCaptureDevice.Position) -> Void)?
+    var snapshotProvider: (() -> UIImage?)?
 
     init(library: LocalMediaLibrary) {
         self.mediaLibrary = library
@@ -289,8 +292,10 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
     func switchCamera() {
         DispatchQueue.main.async {
+            self.switchSnapshot = self.snapshotProvider?()
             withAnimation(.easeOut(duration: 0.12)) {
                 self.isCameraSwitching = true
+                self.previewFreeze = true
             }
         }
 
@@ -322,10 +327,12 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 self.configurePhotoOutputConnection()
                 self.configureMovieOutputConnection()
                 self.setCameraPosition(newPosition)
-                self.applyConnectionFix(position: newPosition)
-                DispatchQueue.main.async { [weak self] in
+                self.applyVideoConnectionsForCurrentState(position: newPosition)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
                     withAnimation(.easeInOut(duration: 0.18)) {
+                        self?.previewFreeze = false
                         self?.isCameraSwitching = false
+                        self?.switchSnapshot = nil
                     }
                 }
             } catch {
@@ -334,9 +341,11 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                     self.session.addInput(currentInput)
                 }
                 self.session.commitConfiguration()
-                DispatchQueue.main.async { [weak self] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
                     withAnimation(.easeInOut(duration: 0.18)) {
+                        self?.previewFreeze = false
                         self?.isCameraSwitching = false
+                        self?.switchSnapshot = nil
                     }
                 }
             }
@@ -692,8 +701,17 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         }
     }
 
-    private func applyConnectionFix(position: AVCaptureDevice.Position) {
+    private func applyVideoConnectionsForCurrentState(position: AVCaptureDevice.Position) {
         if let connection = movieOutput.connection(with: .video) {
+            if connection.isVideoOrientationSupported {
+                connection.videoOrientation = .portrait
+            }
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = (position == .front)
+            }
+        }
+        if let connection = photoOutput.connection(with: .video) {
             if connection.isVideoOrientationSupported {
                 connection.videoOrientation = .portrait
             }

@@ -20,6 +20,7 @@ struct ViewfinderView: View {
     @State private var focusPoint: CGPoint = .zero
     @State private var showFocusIndicator: Bool = false
     @State private var previewConnection: AVCaptureConnection? = nil
+    @State private var previewViewRef: PreviewView? = nil
 
     var body: some View {
         GeometryReader { proxy in
@@ -40,7 +41,14 @@ struct ViewfinderView: View {
                             CameraPreviewView(
                                 session: cameraController.session,
                                 isFrontCamera: cameraController.cameraPosition == .front,
-                                connection: $previewConnection
+                                previewFreeze: cameraController.previewFreeze,
+                                connection: $previewConnection,
+                                onPreviewView: { view in
+                                    Task { @MainActor in
+                                        await Task.yield()
+                                        previewViewRef = view
+                                    }
+                                }
                             )
                             .modifier(LivePreviewCropModifier(
                                 cameraPosition: cameraController.cameraPosition,
@@ -50,7 +58,14 @@ struct ViewfinderView: View {
                             Color.black
                         }
 
-                        if cameraController.isModeSwitching || cameraController.isCameraSwitching {
+                        if cameraController.isCameraSwitching, let snapshot = cameraController.switchSnapshot {
+                            Image(uiImage: snapshot)
+                                .resizable()
+                                .scaledToFill()
+                                .transition(.opacity)
+                                .clipped()
+                                .allowsHitTesting(false)
+                        } else if cameraController.isModeSwitching || cameraController.isCameraSwitching {
                             Rectangle()
                                 .fill(.ultraThinMaterial)
                                 .overlay(Color.black.opacity(0.15))
@@ -232,6 +247,9 @@ struct ViewfinderView: View {
                         connection.isVideoMirrored = (position == .front)
                     }
                 }
+                cameraController.snapshotProvider = { [weak previewViewRef] in
+                    previewViewRef?.snapshotImage()
+                }
             }
             .task {
                 await cameraController.requestAuthorizationIfNeeded()
@@ -240,6 +258,7 @@ struct ViewfinderView: View {
             }
             .onDisappear {
                 cameraController.onPreviewConnectionUpdate = nil
+                cameraController.snapshotProvider = nil
                 cameraController.stopSession()
             }
         }

@@ -1,4 +1,6 @@
 @preconcurrency import AVFoundation
+import CoreImage
+import CoreVideo
 import Foundation
 import Photos
 import SwiftUI
@@ -52,9 +54,15 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     @Published var previewFreeze: Bool = false
     @Published var switchSnapshot: UIImage? = nil
     @Published private(set) var cameraPosition: AVCaptureDevice.Position = .back
+    @Published var isLevelOverlayEnabled: Bool = false
+    @Published private(set) var filteredPreviewImage: CGImage? = nil
+    @Published private(set) var isFilterPreviewActive: Bool = false
 
     private let photoOutput: AVCapturePhotoOutput = AVCapturePhotoOutput()
     private let movieOutput: AVCaptureMovieFileOutput = AVCaptureMovieFileOutput()
+    private let videoDataOutput: AVCaptureVideoDataOutput = AVCaptureVideoDataOutput()
+    private let videoDataOutputQueue: DispatchQueue = DispatchQueue(label: "camera.video.output.queue", qos: .userInitiated)
+    private let ciContext: CIContext = CIContext()
     // 串行队列：所有会话/输出操作都必须在这里执行，避免 libdispatch 断言崩溃
     private let sessionQueue: DispatchQueue = DispatchQueue(label: "camera.session.queue", qos: .userInitiated)
     private let sessionQueueKey: DispatchSpecificKey<Void> = DispatchSpecificKey<Void>()
@@ -75,6 +83,17 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         sessionQueue.setSpecific(key: sessionQueueKey, value: ())
     }
 
+    private struct FilterSettings {
+        var sharpness: Double
+        var contrast: Double
+        var saturation: Double
+        var colorOff: Bool
+    }
+
+    private let filterSettingsQueue: DispatchQueue = DispatchQueue(label: "camera.filter.settings.queue")
+    private var filterSettings = FilterSettings(sharpness: 0.0, contrast: 1.0, saturation: 1.0, colorOff: false)
+    private var hdrEnabled: Bool = false
+
     var exposedISORange: ClosedRange<Float>? {
         readDeviceValue { device in
             let format = device.activeFormat
@@ -86,6 +105,75 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         readDeviceValue { device in
             device.minExposureTargetBias...device.maxExposureTargetBias
         }
+    }
+
+    func isHDRSupported() -> Bool {
+        photoOutput.isHighResolutionCaptureEnabled
+    }
+
+    func setHDR(_ on: Bool) {
+        hdrEnabled = on
+    }
+
+    func setFilterSharpness(_ value: Double) {
+        updateFilterSettings { settings in
+            settings.sharpness = value
+        }
+    }
+
+    func setFilterContrast(_ value: Double) {
+        updateFilterSettings { settings in
+            settings.contrast = value
+        }
+    }
+
+    func setFilterSaturation(_ value: Double) {
+        updateFilterSettings { settings in
+            settings.saturation = value
+        }
+    }
+
+    func setFilterColorOff(_ value: Bool) {
+        updateFilterSettings { settings in
+            settings.colorOff = value
+        }
+    }
+
+    private func updateFilterSettings(_ update: @escaping (inout FilterSettings) -> Void) {
+        filterSettingsQueue.async { [weak self] in
+            guard let self else { return }
+            update(&self.filterSettings)
+            let settings = self.filterSettings
+            let isActive = self.isFilterActive(settings)
+            DispatchQueue.main.async {
+                self.isFilterPreviewActive = isActive
+                if !isActive {
+                    self.filteredPreviewImage = nil
+                }
+            }
+        }
+    }
+
+    private func currentFilterSettings() -> FilterSettings {
+        filterSettingsQueue.sync {
+            filterSettings
+        }
+    }
+
+    private func isFilterActive(_ settings: FilterSettings) -> Bool {
+        if settings.colorOff {
+            return true
+        }
+        if settings.sharpness > 0.001 {
+            return true
+        }
+        if abs(settings.contrast - 1.0) > 0.01 {
+            return true
+        }
+        if abs(settings.saturation - 1.0) > 0.01 {
+            return true
+        }
+        return false
     }
 
     func currentISOValue() -> Float? {
@@ -208,12 +296,24 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 self.session.addOutput(self.photoOutput)
             }
 
+            self.photoOutput.isHighResolutionCaptureEnabled = true
+
             if self.session.canAddOutput(self.movieOutput) {
                 self.session.addOutput(self.movieOutput)
             }
 
+            if self.session.canAddOutput(self.videoDataOutput) {
+                self.videoDataOutput.alwaysDiscardsLateVideoFrames = true
+                self.videoDataOutput.videoSettings = [
+                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+                ]
+                self.videoDataOutput.setSampleBufferDelegate(self, queue: self.videoDataOutputQueue)
+                self.session.addOutput(self.videoDataOutput)
+            }
+
             self.configurePhotoOutputConnection()
             self.configureMovieOutputConnection()
+            self.configureVideoDataOutputConnection()
             self.session.commitConfiguration()
             self.isConfigured = true
             self.updateMinUIZoomForCurrentPosition()
@@ -271,6 +371,11 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         sessionQueue.async { [weak self] in
             guard let self else { return }
             let settings = AVCapturePhotoSettings()
+
+            if self.hdrEnabled && self.photoOutput.isHighResolutionCaptureEnabled {
+                settings.isHighResolutionPhotoEnabled = true
+                settings.photoQualityPrioritization = .quality
+            }
 
             let supported = self.readIsFlashSupported()
             if supported {
@@ -934,6 +1039,17 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         }
     }
 
+    private func configureVideoDataOutputConnection() {
+        guard let connection = videoDataOutput.connection(with: .video) else { return }
+        if connection.isVideoOrientationSupported {
+            connection.videoOrientation = .portrait
+        }
+        if connection.isVideoMirroringSupported {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = (currentPosition == .front)
+        }
+    }
+
     private func configurePhotoOutputConnection() {
         guard let connection = photoOutput.connection(with: .video) else { return }
         if connection.isVideoOrientationSupported {
@@ -956,6 +1072,15 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             }
         }
         if let connection = photoOutput.connection(with: .video) {
+            if connection.isVideoOrientationSupported {
+                connection.videoOrientation = .portrait
+            }
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = (position == .front)
+            }
+        }
+        if let connection = videoDataOutput.connection(with: .video) {
             if connection.isVideoOrientationSupported {
                 connection.videoOrientation = .portrait
             }
@@ -1127,6 +1252,40 @@ extension CameraSessionController: AVCaptureFileOutputRecordingDelegate {
         let displayRect = CGRect(origin: .zero, size: natural).applying(transform)
         let displaySize = CGSize(width: abs(displayRect.width), height: abs(displayRect.height))
         print("Video metadata: natural=\(natural) transform=\(transform) display=\(displaySize)")
+    }
+}
+
+extension CameraSessionController: AVCaptureVideoDataOutputSampleBufferDelegate {
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard isFilterPreviewActive else { return }
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+
+        let settings = currentFilterSettings()
+        guard isFilterActive(settings) else { return }
+
+        var image = CIImage(cvPixelBuffer: pixelBuffer)
+        let saturation = settings.colorOff ? 0.0 : settings.saturation
+
+        image = image.applyingFilter(
+            "CIColorControls",
+            parameters: [
+                kCIInputSaturationKey: saturation,
+                kCIInputContrastKey: settings.contrast
+            ]
+        )
+
+        image = image.applyingFilter(
+            "CISharpenLuminance",
+            parameters: [
+                kCIInputSharpnessKey: settings.sharpness
+            ]
+        )
+
+        guard let cgImage = ciContext.createCGImage(image, from: image.extent) else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.filteredPreviewImage = cgImage
+        }
     }
 }
 

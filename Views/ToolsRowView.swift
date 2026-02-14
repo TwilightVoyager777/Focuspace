@@ -12,32 +12,49 @@ struct BottomC1ToolsRowView: View {
         case iso
         case shutter
         case ev
+        case sharpness
+        case contrast
+        case saturation
     }
 
     @State private var activeTool: ActiveTool = .none
     @State private var rulerValue: Double = 0
     @State private var lastCommitTime: CFTimeInterval = 0
     @State private var autoSelection: [ActiveTool: Bool] = [:]
+    @State private var levelOn: Bool = false
+    @State private var colorOff: Bool = false
+    @State private var sharpness: Double = 0
+    @State private var contrast: Double = 1
+    @State private var saturation: Double = 1
 
     // 工具列表
-    private let items: [ToolItem] = [
-        ToolItem(title: "前置", systemName: "camera.rotate"),
-        ToolItem(title: "对焦", systemName: "viewfinder"),
-        ToolItem(title: "白平衡", systemName: "circle.lefthalf.filled"),
-        ToolItem(title: "感光", systemName: "sun.max"),
-        ToolItem(title: "快门速度", systemName: "timer"),
-        ToolItem(title: "曝光", systemName: "circle.dashed"),
-        ToolItem(title: "设置", systemName: "gearshape")
-    ]
+    private var items: [ToolItem] {
+        let levelEnabled = LevelOverlay.isSupported
+        return [
+            ToolItem(title: "前置", systemName: "camera.rotate"),
+            ToolItem(title: "白平衡", systemName: "circle.lefthalf.filled"),
+            ToolItem(title: "感光", systemName: "sun.max"),
+            ToolItem(title: "快门速度", systemName: "timer"),
+            ToolItem(title: "曝光", systemName: "circle.dashed"),
+            ToolItem(title: "饱和度", systemName: "drop.fill"),
+            ToolItem(title: "对比度", systemName: "circle.righthalf.filled"),
+            ToolItem(title: "锐度", systemName: "camera.filters"),
+            ToolItem(title: "色彩取消", systemName: "circle.slash"),
+            ToolItem(title: "水平仪", systemName: "ruler", isEnabled: levelEnabled),
+            ToolItem(title: "设置", systemName: "gearshape")
+        ]
+    }
 
     // 默认高亮项
     private let selectedTitle: String = "感光"
 
     var body: some View {
-        Group {
-            if activeTool == .none {
-                toolsRow
-            } else {
+        ZStack {
+            toolsRow
+                .opacity(activeTool == .none ? 1 : 0)
+                .allowsHitTesting(activeTool == .none)
+
+            if activeTool != .none {
                 RulerControl(
                     title: activeToolTitle,
                     valueText: formattedRulerValue(),
@@ -86,6 +103,7 @@ struct BottomC1ToolsRowView: View {
                         title: item.title,
                         systemName: item.systemName,
                         isSelected: isItemSelected(item),
+                        isEnabled: item.isEnabled,
                         action: {
                             handleTap(for: item.title)
                         }
@@ -98,6 +116,10 @@ struct BottomC1ToolsRowView: View {
 
     private func isItemSelected(_ item: ToolItem) -> Bool {
         switch item.title {
+        case "水平仪":
+            return levelOn
+        case "色彩取消":
+            return colorOff
         case "白平衡":
             return activeTool == .wb
         case "感光":
@@ -106,8 +128,12 @@ struct BottomC1ToolsRowView: View {
             return activeTool == .shutter
         case "曝光":
             return activeTool == .ev
-        case "对焦":
-            return cameraController.isFocusLocked
+        case "锐度":
+            return activeTool == .sharpness
+        case "对比度":
+            return activeTool == .contrast
+        case "饱和度":
+            return activeTool == .saturation
         default:
             return item.title == selectedTitle
         }
@@ -117,8 +143,12 @@ struct BottomC1ToolsRowView: View {
         switch title {
         case "前置":
             cameraController.switchCamera()
-        case "对焦":
-            cameraController.toggleFocusLock()
+        case "水平仪":
+            levelOn.toggle()
+            cameraController.isLevelOverlayEnabled = levelOn
+        case "色彩取消":
+            colorOff.toggle()
+            cameraController.setFilterColorOff(colorOff)
         case "白平衡":
             toggleActiveTool(.wb)
         case "感光":
@@ -127,6 +157,12 @@ struct BottomC1ToolsRowView: View {
             toggleActiveTool(.shutter)
         case "曝光":
             toggleActiveTool(.ev)
+        case "锐度":
+            toggleActiveTool(.sharpness)
+        case "对比度":
+            toggleActiveTool(.contrast)
+        case "饱和度":
+            toggleActiveTool(.saturation)
         default:
             break
         }
@@ -146,6 +182,12 @@ struct BottomC1ToolsRowView: View {
             return "Shutter"
         case .ev:
             return "EV"
+        case .sharpness:
+            return "Sharpness"
+        case .contrast:
+            return "Contrast"
+        case .saturation:
+            return "Saturation"
         case .none:
             return ""
         }
@@ -165,6 +207,8 @@ struct BottomC1ToolsRowView: View {
             return "1/\(denominator)s"
         case .ev:
             return String(format: "%.1f", rulerValue)
+        case .sharpness, .contrast, .saturation:
+            return String(format: "%.2f", rulerValue)
         case .none:
             return ""
         }
@@ -186,6 +230,12 @@ struct BottomC1ToolsRowView: View {
         case .ev:
             let current = Double(cameraController.currentExposureBias() ?? 0)
             return clampAndStep(current, for: .ev)
+        case .sharpness:
+            return clampAndStep(sharpness, for: .sharpness)
+        case .contrast:
+            return clampAndStep(contrast, for: .contrast)
+        case .saturation:
+            return clampAndStep(saturation, for: .saturation)
         case .none:
             return rulerValue
         }
@@ -214,6 +264,15 @@ struct BottomC1ToolsRowView: View {
             cameraController.setShutter(durationSeconds: rulerValue)
         case .ev:
             cameraController.setExposureBias(Float(rulerValue))
+        case .sharpness:
+            sharpness = rulerValue
+            cameraController.setFilterSharpness(rulerValue)
+        case .contrast:
+            contrast = rulerValue
+            cameraController.setFilterContrast(rulerValue)
+        case .saturation:
+            saturation = rulerValue
+            cameraController.setFilterSaturation(rulerValue)
         case .none:
             break
         }
@@ -229,6 +288,15 @@ struct BottomC1ToolsRowView: View {
             cameraController.setShutter(durationSeconds: nil)
         case .ev:
             cameraController.setExposureBias(nil)
+        case .sharpness:
+            sharpness = 0
+            cameraController.setFilterSharpness(0)
+        case .contrast:
+            contrast = 1
+            cameraController.setFilterContrast(1)
+        case .saturation:
+            saturation = 1
+            cameraController.setFilterSaturation(1)
         case .none:
             break
         }
@@ -252,6 +320,12 @@ struct BottomC1ToolsRowView: View {
             cameraController.getCurrentEV { value in
                 completion(Double(value))
             }
+        case .sharpness:
+            completion(0)
+        case .contrast:
+            completion(1)
+        case .saturation:
+            completion(1)
         case .none:
             completion(rulerValue)
         }
@@ -279,6 +353,18 @@ struct BottomC1ToolsRowView: View {
         return -4.0...4.0
     }
 
+    private func sharpnessRange() -> ClosedRange<Double> {
+        0.0...1.0
+    }
+
+    private func contrastRange() -> ClosedRange<Double> {
+        0.5...2.0
+    }
+
+    private func saturationRange() -> ClosedRange<Double> {
+        0.0...2.0
+    }
+
     private func stepValue(for tool: ActiveTool) -> Double {
         switch tool {
         case .wb:
@@ -289,6 +375,8 @@ struct BottomC1ToolsRowView: View {
             return span > 400 ? 10.0 : 5.0
         case .ev:
             return 0.1
+        case .sharpness, .contrast, .saturation:
+            return 0.05
         case .shutter, .none:
             return 1.0
         }
@@ -305,6 +393,12 @@ struct BottomC1ToolsRowView: View {
         case .ev:
             let range = evRange()
             return clampAndStepLinear(value, range: range, step: stepValue(for: tool))
+        case .sharpness:
+            return clampAndStepLinear(value, range: sharpnessRange(), step: stepValue(for: tool))
+        case .contrast:
+            return clampAndStepLinear(value, range: contrastRange(), step: stepValue(for: tool))
+        case .saturation:
+            return clampAndStepLinear(value, range: saturationRange(), step: stepValue(for: tool))
         case .shutter:
             return clampAndStepShutter(value)
         case .none:
@@ -347,6 +441,12 @@ struct BottomC1ToolsRowView: View {
             return linearNormalize(value, range: isoRange())
         case .ev:
             return linearNormalize(value, range: evRange())
+        case .sharpness:
+            return linearNormalize(value, range: sharpnessRange())
+        case .contrast:
+            return linearNormalize(value, range: contrastRange())
+        case .saturation:
+            return linearNormalize(value, range: saturationRange())
         case .none:
             return 0
         }
@@ -367,6 +467,12 @@ struct BottomC1ToolsRowView: View {
             return linearDenormalize(t, range: isoRange())
         case .ev:
             return linearDenormalize(t, range: evRange())
+        case .sharpness:
+            return linearDenormalize(t, range: sharpnessRange())
+        case .contrast:
+            return linearDenormalize(t, range: contrastRange())
+        case .saturation:
+            return linearDenormalize(t, range: saturationRange())
         case .none:
             return 0
         }
@@ -403,6 +509,7 @@ struct RulerControl: View {
     @State private var isDraggingThumb: Bool = false
     @State private var isAutoSelected: Bool = false
     @State private var lastHapticTime: CFTimeInterval = 0
+    @State private var autoTimer: Timer? = nil
 
     var body: some View {
         VStack(spacing: 10) {
@@ -450,6 +557,7 @@ struct RulerControl: View {
                         .onChanged { gesture in
                             if !isDraggingThumb {
                                 isDraggingThumb = true
+                                stopAutoPolling()
                                 triggerHaptic(force: true)
                             }
                             isAutoSelected = false
@@ -470,6 +578,9 @@ struct RulerControl: View {
                         }
                         .onEnded { _ in
                             isDraggingThumb = false
+                            if isAutoSelected {
+                                startAutoPolling()
+                            }
                         }
                 )
                 .onAppear {
@@ -488,10 +599,8 @@ struct RulerControl: View {
                 isAutoSelected = true
                 onAutoSelectedChange(true)
                 onAuto()
-                onRequestAutoValue { autoValue in
-                    value = clampAndStep(autoValue)
-                    syncThumbFromValue()
-                }
+                requestAutoSync(force: true)
+                startAutoPolling()
             }) {
                 Text("Auto")
                     .font(.system(size: 12, weight: .semibold))
@@ -510,7 +619,16 @@ struct RulerControl: View {
         .onChange(of: autoSelectedFlag) { newValue in
             if !isDraggingThumb {
                 isAutoSelected = newValue
+                if newValue {
+                    requestAutoSync(force: true)
+                    startAutoPolling()
+                } else {
+                    stopAutoPolling()
+                }
             }
+        }
+        .onDisappear {
+            stopAutoPolling()
         }
     }
 
@@ -519,6 +637,34 @@ struct RulerControl: View {
         let maxX = max(1, availableWidth / 2)
         let t = max(0.0, min(1.0, normalizedValue(value)))
         thumbX = CGFloat(t * 2.0 - 1.0) * maxX
+    }
+
+    private func requestAutoSync(force: Bool) {
+        if !force, !isAutoSelected {
+            return
+        }
+        onRequestAutoValue { autoValue in
+            let clamped = clampAndStep(autoValue)
+            if clamped != value {
+                value = clamped
+            }
+            syncThumbFromValue()
+        }
+    }
+
+    private func startAutoPolling() {
+        guard isAutoSelected else { return }
+        if autoTimer != nil {
+            return
+        }
+        autoTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
+            requestAutoSync(force: false)
+        }
+    }
+
+    private func stopAutoPolling() {
+        autoTimer?.invalidate()
+        autoTimer = nil
     }
 
     private func triggerHaptic(force: Bool) {
@@ -552,9 +698,17 @@ struct RulerControl: View {
 
 // 工具数据模型
 struct ToolItem: Identifiable {
-    let id = UUID()
+    let id: String
     let title: String
     let systemName: String
+    let isEnabled: Bool
+
+    init(title: String, systemName: String, isEnabled: Bool = true) {
+        self.id = title
+        self.title = title
+        self.systemName = systemName
+        self.isEnabled = isEnabled
+    }
 }
 
 // 单个工具按钮
@@ -562,6 +716,7 @@ struct ToolButtonView: View {
     let title: String
     let systemName: String
     let isSelected: Bool
+    let isEnabled: Bool
     let action: () -> Void
 
     var body: some View {
@@ -579,5 +734,7 @@ struct ToolButtonView: View {
             .frame(minWidth: 48)
         }
         .buttonStyle(.plain)
+        .opacity(isEnabled ? 1.0 : 0.35)
+        .allowsHitTesting(isEnabled)
     }
 }

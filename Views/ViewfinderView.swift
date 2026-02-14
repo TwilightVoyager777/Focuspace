@@ -54,6 +54,13 @@ struct ViewfinderView: View {
                                 cameraPosition: cameraController.cameraPosition,
                                 captureMode: cameraController.captureMode
                             ))
+
+                            FilteredPreviewOverlayView(cameraController: cameraController)
+                                .modifier(LivePreviewCropModifier(
+                                    cameraPosition: cameraController.cameraPosition,
+                                    captureMode: cameraController.captureMode
+                                ))
+                                .allowsHitTesting(false)
                         } else {
                             Color.black
                         }
@@ -78,6 +85,9 @@ struct ViewfinderView: View {
                             GridOverlayView()
                                 .padding(1)
                         }
+
+                        LevelOverlay(isEnabled: cameraController.isLevelOverlayEnabled)
+                            .padding(1)
 
                         // 未授权或不可用时提示文本
                         if cameraController.state == .denied || cameraController.state == .unavailable {

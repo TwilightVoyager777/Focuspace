@@ -43,11 +43,6 @@ struct TopBarView: View {
                 Spacer()
             }
 
-            // 顶部小绿点提示（占位）
-            Circle()
-                .fill(Color.green)
-                .frame(width: 6, height: 6)
-                .offset(y: 6)
         }
         .frame(height: height)
         .frame(maxWidth: .infinity)

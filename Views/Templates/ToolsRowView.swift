@@ -1,10 +1,10 @@
 import SwiftUI
 import QuartzCore
-import UIKit
 
 // 底部工具条（C1）
 struct BottomC1ToolsRowView: View {
     @ObservedObject var cameraController: CameraSessionController
+    @Binding var isAdjusting: Bool
 
     enum ActiveTool {
         case none
@@ -18,6 +18,10 @@ struct BottomC1ToolsRowView: View {
     }
 
     @State private var activeTool: ActiveTool = .none
+
+    private var isActiveToolAdjusting: Bool {
+        activeTool != .none
+    }
     @State private var rulerValue: Double = 0
     @State private var lastCommitTime: CFTimeInterval = 0
     @State private var autoSelection: [ActiveTool: Bool] = [:]
@@ -95,10 +99,18 @@ struct BottomC1ToolsRowView: View {
                         activeTool = .none
                     }
                 )
+                .offset(y: -20)
+                .onDisappear {
+                    isAdjusting = false
+                }
             }
         }
         .onChange(of: activeTool) { newValue in
             rulerValue = initialRulerValue(for: newValue)
+            isAdjusting = newValue != .none
+        }
+        .onAppear {
+            isAdjusting = isActiveToolAdjusting
         }
         .onChange(of: rulerValue) { newValue in
             applyRulerValueIfNeeded(newValue)
@@ -109,6 +121,7 @@ struct BottomC1ToolsRowView: View {
                     activeTool = .none
                 }
             }
+            isAdjusting = isActiveToolAdjusting
         }
     }
 
@@ -128,6 +141,7 @@ struct BottomC1ToolsRowView: View {
                 }
             }
             .padding(.horizontal, 4)
+
         }
     }
 
@@ -507,251 +521,3 @@ struct BottomC1ToolsRowView: View {
     }
 }
 
-struct RulerControl: View {
-    let title: String
-    let valueText: String
-    @Binding var value: Double
-    let normalizedValue: (Double) -> Double
-    let valueFromNormalized: (Double) -> Double
-    let clampAndStep: (Double) -> Double
-    let autoSelectedFlag: Bool
-    let onAutoSelectedChange: (Bool) -> Void
-    let onManualChange: () -> Void
-    let onRequestAutoValue: (@escaping (Double) -> Void) -> Void
-    let onAuto: () -> Void
-    let onDone: () -> Void
-
-    @State private var thumbX: CGFloat = 0
-    @State private var availableWidth: CGFloat = 0
-    @State private var isDraggingThumb: Bool = false
-    @State private var isAutoSelected: Bool = false
-    @State private var lastHapticTime: CFTimeInterval = 0
-    @State private var autoTimer: Timer? = nil
-
-    var body: some View {
-        VStack(spacing: 10) {
-            HStack {
-                Button(action: onDone) {
-                    Text("Done")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(Color.white.opacity(0.85))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.white.opacity(0.12))
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(Color.white.opacity(0.8))
-
-                Text(valueText)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(Color.yellow.opacity(0.9))
-            }
-
-            GeometryReader { geometry in
-                let width = max(geometry.size.width, 1)
-                let maxX = max(1, width / 2)
-
-                ZStack {
-                    rulerTicks(width: width)
-                        .frame(height: 40)
-
-                    Rectangle()
-                        .fill(Color.yellow.opacity(0.9))
-                        .frame(width: 2, height: 40)
-                        .offset(x: thumbX)
-                }
-                .frame(height: 40)
-                .clipped()
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { gesture in
-                            if !isDraggingThumb {
-                                isDraggingThumb = true
-                                stopAutoPolling()
-                                triggerHaptic(force: true)
-                            }
-                            isAutoSelected = false
-                            onAutoSelectedChange(false)
-                            onManualChange()
-
-                            let sensitivity: CGFloat = 1.5
-                            let centeredX = (gesture.location.x - width / 2) * sensitivity
-                            let clampedX = max(-maxX, min(maxX, centeredX))
-                            thumbX = clampedX
-
-                            let t = Double((clampedX + maxX) / (2 * maxX))
-                            let newValue = clampAndStep(valueFromNormalized(t))
-                            if newValue != value {
-                                value = newValue
-                                triggerHaptic(force: false)
-                            }
-                        }
-                        .onEnded { _ in
-                            isDraggingThumb = false
-                            if isAutoSelected {
-                                startAutoPolling()
-                            }
-                        }
-                )
-                .onAppear {
-                    availableWidth = width
-                    isAutoSelected = autoSelectedFlag
-                    syncThumbFromValue()
-                }
-                .onChange(of: width) { newValue in
-                    availableWidth = newValue
-                    syncThumbFromValue()
-                }
-            }
-            .frame(height: 40)
-
-            Button(action: {
-                isAutoSelected = true
-                onAutoSelectedChange(true)
-                onAuto()
-                requestAutoSync(force: true)
-                startAutoPolling()
-            }) {
-                Text("Auto")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(isAutoSelected ? Color.black.opacity(0.9) : Color.white.opacity(0.85))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(isAutoSelected ? Color.yellow.opacity(0.9) : Color.white.opacity(0.12))
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 8)
-        .onChange(of: value) { _ in
-            syncThumbFromValue()
-        }
-        .onChange(of: autoSelectedFlag) { newValue in
-            if !isDraggingThumb {
-                isAutoSelected = newValue
-                if newValue {
-                    requestAutoSync(force: true)
-                    startAutoPolling()
-                } else {
-                    stopAutoPolling()
-                }
-            }
-        }
-        .onDisappear {
-            stopAutoPolling()
-        }
-    }
-
-    private func syncThumbFromValue() {
-        guard !isDraggingThumb else { return }
-        let maxX = max(1, availableWidth / 2)
-        let t = max(0.0, min(1.0, normalizedValue(value)))
-        thumbX = CGFloat(t * 2.0 - 1.0) * maxX
-    }
-
-    private func requestAutoSync(force: Bool) {
-        if !force, !isAutoSelected {
-            return
-        }
-        onRequestAutoValue { autoValue in
-            let clamped = clampAndStep(autoValue)
-            if clamped != value {
-                value = clamped
-            }
-            syncThumbFromValue()
-        }
-    }
-
-    private func startAutoPolling() {
-        guard isAutoSelected else { return }
-        if autoTimer != nil {
-            return
-        }
-        autoTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
-            requestAutoSync(force: false)
-        }
-    }
-
-    private func stopAutoPolling() {
-        autoTimer?.invalidate()
-        autoTimer = nil
-    }
-
-    private func triggerHaptic(force: Bool) {
-        let now = CACurrentMediaTime()
-        if !force && now - lastHapticTime < 0.05 {
-            return
-        }
-        lastHapticTime = now
-        let generator = UIImpactFeedbackGenerator(style: .light)
-        generator.prepare()
-        generator.impactOccurred()
-    }
-
-    private func rulerTicks(width: CGFloat) -> some View {
-        let tickCount = 61
-        let spacing: CGFloat = 10
-        let totalWidth = CGFloat(tickCount - 1) * spacing
-
-        return HStack(spacing: spacing) {
-            ForEach(0..<tickCount, id: \.self) { index in
-                let isMajor = index % 5 == 0
-                Rectangle()
-                    .fill(Color.white.opacity(isMajor ? 0.7 : 0.35))
-                    .frame(width: 1, height: isMajor ? 18 : 10)
-            }
-        }
-        .frame(width: totalWidth, height: 40)
-        .frame(width: width, height: 40, alignment: .center)
-    }
-}
-
-// 工具数据模型
-struct ToolItem: Identifiable {
-    let id: String
-    let title: String
-    let systemName: String
-    let isEnabled: Bool
-
-    init(title: String, systemName: String, isEnabled: Bool = true) {
-        self.id = title
-        self.title = title
-        self.systemName = systemName
-        self.isEnabled = isEnabled
-    }
-}
-
-// 单个工具按钮
-struct ToolButtonView: View {
-    let title: String
-    let systemName: String
-    let isSelected: Bool
-    let isEnabled: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: systemName)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(isSelected ? Color.yellow.opacity(0.9) : Color.white.opacity(0.8))
-                    .frame(width: 28, height: 24)
-
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(isSelected ? Color.yellow.opacity(0.9) : Color.white.opacity(0.7))
-            }
-            .frame(minWidth: 48)
-        }
-        .buttonStyle(.plain)
-        .opacity(isEnabled ? 1.0 : 0.35)
-        .allowsHitTesting(isEnabled)
-    }
-}

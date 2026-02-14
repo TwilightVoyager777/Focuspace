@@ -288,45 +288,4 @@ struct ViewfinderView: View {
     }
 }
 
-// 三等分网格线
-struct LivePreviewCropModifier: ViewModifier {
-    let cameraPosition: AVCaptureDevice.Position
-    let captureMode: CameraSessionController.CaptureMode
 
-    func body(content: Content) -> some View {
-        let cropX: CGFloat
-        if cameraPosition == .front {
-            cropX = (captureMode == .photo) ? 1.30 : 1.0
-        } else {
-            cropX = 1.0
-        }
-        return content
-            .scaleEffect(x: cropX, y: 1.0, anchor: .center)
-            .clipped()
-    }
-}
-
-struct GridOverlayView: View {
-    var body: some View {
-        GeometryReader { proxy in
-            let size = proxy.size
-            let thirdWidth = size.width / 3
-            let thirdHeight = size.height / 3
-
-            Path { path in
-                path.move(to: CGPoint(x: thirdWidth, y: 0))
-                path.addLine(to: CGPoint(x: thirdWidth, y: size.height))
-
-                path.move(to: CGPoint(x: thirdWidth * 2, y: 0))
-                path.addLine(to: CGPoint(x: thirdWidth * 2, y: size.height))
-
-                path.move(to: CGPoint(x: 0, y: thirdHeight))
-                path.addLine(to: CGPoint(x: size.width, y: thirdHeight))
-
-                path.move(to: CGPoint(x: 0, y: thirdHeight * 2))
-                path.addLine(to: CGPoint(x: size.width, y: thirdHeight * 2))
-            }
-            .stroke(Color.white.opacity(0.2), lineWidth: 1)
-        }
-    }
-}

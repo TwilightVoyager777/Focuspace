@@ -1202,9 +1202,17 @@ extension CameraSessionController: AVCapturePhotoCaptureDelegate {
             return
         }
 
+        let settings = currentFilterSettings()
+        let outputData: Data
+        if isFilterActive(settings), let filtered = applyFiltersToPhotoData(data, settings: settings) {
+            outputData = filtered
+        } else {
+            outputData = data
+        }
+
         Task {
             do {
-                try await mediaLibrary.savePhoto(data)
+                try await mediaLibrary.savePhoto(outputData)
                 setCaptureResult(success: true, message: nil)
             } catch {
                 setCaptureResult(success: false, message: "Save failed")
@@ -1252,6 +1260,29 @@ extension CameraSessionController: AVCaptureFileOutputRecordingDelegate {
         let displayRect = CGRect(origin: .zero, size: natural).applying(transform)
         let displaySize = CGSize(width: abs(displayRect.width), height: abs(displayRect.height))
         print("Video metadata: natural=\(natural) transform=\(transform) display=\(displaySize)")
+    }
+
+    private func applyFiltersToPhotoData(_ data: Data, settings: FilterSettings) -> Data? {
+        guard var image = CIImage(data: data) else { return nil }
+        let saturation = settings.colorOff ? 0.0 : settings.saturation
+
+        image = image.applyingFilter(
+            "CIColorControls",
+            parameters: [
+                kCIInputSaturationKey: saturation,
+                kCIInputContrastKey: settings.contrast
+            ]
+        )
+
+        image = image.applyingFilter(
+            "CISharpenLuminance",
+            parameters: [
+                kCIInputSharpnessKey: settings.sharpness
+            ]
+        )
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        return ciContext.jpegRepresentation(of: image, colorSpace: colorSpace, options: [:])
     }
 }
 

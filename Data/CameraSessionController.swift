@@ -47,6 +47,8 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     @Published var captureMode: CaptureMode = .photo
     @Published var isRecording: Bool = false
     @Published var recordingDuration: TimeInterval = 0
+    @Published var isModeSwitching: Bool = false
+    @Published var isCameraSwitching: Bool = false
     @Published private(set) var cameraPosition: AVCaptureDevice.Position = .back
 
     private let photoOutput: AVCapturePhotoOutput = AVCapturePhotoOutput()
@@ -60,6 +62,8 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     private var currentPosition: AVCaptureDevice.Position = .back
     private var pendingRecordingID: UUID? = nil
     private var recordingTimer: Timer? = nil
+
+    var onPreviewConnectionUpdate: ((AVCaptureDevice.Position) -> Void)?
 
     init(library: LocalMediaLibrary) {
         self.mediaLibrary = library
@@ -96,7 +100,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             guard let self, !self.isConfigured else { return }
 
             self.session.beginConfiguration()
-            self.session.sessionPreset = .photo
+            self.session.sessionPreset = self.captureMode == .video ? .high : .photo
 
             guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: self.currentPosition) else {
                 self.session.commitConfiguration()
@@ -124,6 +128,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 self.session.addOutput(self.movieOutput)
             }
 
+            self.configurePhotoOutputConnection()
             self.configureMovieOutputConnection()
             self.session.commitConfiguration()
             self.isConfigured = true
@@ -154,6 +159,8 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
     func setCaptureMode(_ mode: CaptureMode) {
         setCaptureModeOnMain(mode)
+        beginModeSwitchingAnimation()
+        updateSessionPreset(for: mode)
     }
 
     func capturePhoto() {
@@ -188,6 +195,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 settings.flashMode = .off
             }
 
+            self.configurePhotoOutputConnection()
             self.photoOutput.capturePhoto(with: settings, delegate: self)
         }
     }
@@ -280,6 +288,12 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     }
 
     func switchCamera() {
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.12)) {
+                self.isCameraSwitching = true
+            }
+        }
+
         sessionQueue.async { [weak self] in
             guard let self else { return }
             guard let currentInput = self.currentVideoInput else { return }
@@ -305,14 +319,26 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 self.session.commitConfiguration()
                 self.updateMinUIZoomForCurrentPosition()
                 self.updateFlashSupport(for: newDevice)
+                self.configurePhotoOutputConnection()
                 self.configureMovieOutputConnection()
                 self.setCameraPosition(newPosition)
+                self.applyConnectionFix(position: newPosition)
+                DispatchQueue.main.async { [weak self] in
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        self?.isCameraSwitching = false
+                    }
+                }
             } catch {
                 self.session.beginConfiguration()
                 if !self.session.inputs.contains(currentInput) {
                     self.session.addInput(currentInput)
                 }
                 self.session.commitConfiguration()
+                DispatchQueue.main.async { [weak self] in
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        self?.isCameraSwitching = false
+                    }
+                }
             }
         }
     }
@@ -597,6 +623,40 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         }
     }
 
+    private func beginModeSwitchingAnimation() {
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.12)) {
+                self.isModeSwitching = true
+            }
+        }
+    }
+
+    private func finishModeSwitchingAnimation() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                self.isModeSwitching = false
+            }
+        }
+    }
+
+    private func updateSessionPreset(for mode: CaptureMode) {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            defer {
+                self.finishModeSwitchingAnimation()
+            }
+            guard self.isConfigured else { return }
+            guard !self.movieOutput.isRecording else { return }
+
+            let preset: AVCaptureSession.Preset = (mode == .video) ? .high : .photo
+            guard self.session.canSetSessionPreset(preset) else { return }
+
+            self.session.beginConfiguration()
+            self.session.sessionPreset = preset
+            self.session.commitConfiguration()
+        }
+    }
+
     private func readIsFlashSupported() -> Bool {
         if Thread.isMainThread {
             return isFlashSupported
@@ -618,6 +678,32 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         if connection.isVideoMirroringSupported {
             connection.automaticallyAdjustsVideoMirroring = false
             connection.isVideoMirrored = (currentPosition == .front)
+        }
+    }
+
+    private func configurePhotoOutputConnection() {
+        guard let connection = photoOutput.connection(with: .video) else { return }
+        if connection.isVideoOrientationSupported {
+            connection.videoOrientation = .portrait
+        }
+        if connection.isVideoMirroringSupported {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = (currentPosition == .front)
+        }
+    }
+
+    private func applyConnectionFix(position: AVCaptureDevice.Position) {
+        if let connection = movieOutput.connection(with: .video) {
+            if connection.isVideoOrientationSupported {
+                connection.videoOrientation = .portrait
+            }
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = (position == .front)
+            }
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.onPreviewConnectionUpdate?(position)
         }
     }
 
@@ -758,6 +844,7 @@ extension CameraSessionController: AVCaptureFileOutputRecordingDelegate {
         }
 
         Task {
+            logRecordedVideoMetadata(url: outputFileURL)
             do {
                 try await mediaLibrary.saveVideoFile(at: outputFileURL, id: id)
                 setCaptureResult(success: true, message: nil)
@@ -765,6 +852,19 @@ extension CameraSessionController: AVCaptureFileOutputRecordingDelegate {
                 setCaptureResult(success: false, message: "Save failed")
             }
         }
+    }
+
+    private func logRecordedVideoMetadata(url: URL) {
+        let asset = AVAsset(url: url)
+        guard let track = asset.tracks(withMediaType: .video).first else {
+            print("Video metadata: no video track")
+            return
+        }
+        let natural = track.naturalSize
+        let transform = track.preferredTransform
+        let displayRect = CGRect(origin: .zero, size: natural).applying(transform)
+        let displaySize = CGSize(width: abs(displayRect.width), height: abs(displayRect.height))
+        print("Video metadata: natural=\(natural) transform=\(transform) display=\(displaySize)")
     }
 }
 

@@ -467,48 +467,41 @@ private struct MediaPreviewView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
 
-                Spacer()
-
-                switch item.type {
-                case .photo(let image):
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                case .video(let url):
-                    VideoPlayer(player: player)
-                        .frame(maxWidth: .infinity)
-                        .aspectRatio(videoAspectRatio, contentMode: .fit)
-                        .onAppear {
-                            if player == nil {
-                                player = AVPlayer(url: url)
+                GeometryReader { geo in
+                    switch item.type {
+                    case .photo(let image):
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: geo.size.width, height: geo.size.height)
+                    case .video(let url):
+                        VideoPlayer(player: player)
+                            .aspectRatio(videoAspectRatio, contentMode: .fit)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .background(Color.black)
+                            .onAppear {
+                                if player == nil {
+                                    player = AVPlayer(url: url)
+                                }
+                                videoAspectRatio = videoDisplayRatio(url: url)
+                                player?.play()
                             }
-                            updateVideoAspectRatio(for: url)
-                            player?.play()
-                        }
-                        .onDisappear {
-                            player?.pause()
-                        }
+                            .onDisappear {
+                                player?.pause()
+                            }
+                    }
                 }
-
-                Spacer()
             }
         }
         .toolbar(.hidden, for: .navigationBar)
     }
 
-    private func updateVideoAspectRatio(for url: URL) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let asset = AVAsset(url: url)
-            guard let track = asset.tracks(withMediaType: .video).first else { return }
-            let size = track.naturalSize.applying(track.preferredTransform)
-            let width = abs(size.width)
-            let height = abs(size.height)
-            guard height > 0 else { return }
-            let ratio = width / height
-            DispatchQueue.main.async {
-                videoAspectRatio = ratio
-            }
-        }
+    private func videoDisplayRatio(url: URL) -> CGFloat {
+        let asset = AVAsset(url: url)
+        guard let track = asset.tracks(withMediaType: .video).first else { return 9.0 / 16.0 }
+        let rect = CGRect(origin: .zero, size: track.naturalSize).applying(track.preferredTransform)
+        let width = abs(rect.width)
+        let height = abs(rect.height)
+        return height == 0 ? (9.0 / 16.0) : (width / height)
     }
 }

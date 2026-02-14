@@ -31,7 +31,12 @@ struct TopBarView: View {
                     }
 
                     // 中间分段控件固定居中，不受左右宽度影响
-                    SegmentedModeView(captureMode: $cameraController.captureMode)
+                    SegmentedModeView(
+                        captureMode: cameraController.captureMode,
+                        onSelect: { mode in
+                            cameraController.setCaptureMode(mode)
+                        }
+                    )
                 }
                 .padding(.horizontal, 16)
 
@@ -66,12 +71,13 @@ struct TopBarView: View {
 
 // 顶部分段控件（视频 / 照片）
 struct SegmentedModeView: View {
-    @Binding var captureMode: CameraSessionController.CaptureMode
+    let captureMode: CameraSessionController.CaptureMode
+    let onSelect: (CameraSessionController.CaptureMode) -> Void
 
     var body: some View {
         HStack(spacing: 6) {
             Button {
-                captureMode = .video
+                onSelect(.video)
             } label: {
                 Text("视频")
                     .font(.system(size: 12, weight: .semibold))
@@ -84,7 +90,7 @@ struct SegmentedModeView: View {
             .buttonStyle(.plain)
 
             Button {
-                captureMode = .photo
+                onSelect(.photo)
             } label: {
                 Text("照片")
                     .font(.system(size: 12, weight: .bold))

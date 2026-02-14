@@ -5,12 +5,15 @@ import SwiftUI
 struct CameraPreviewView: UIViewRepresentable {
     let session: AVCaptureSession
     let isFrontCamera: Bool
+    @Binding var connection: AVCaptureConnection?
 
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
         view.videoPreviewLayer.session = session
         view.videoPreviewLayer.videoGravity = .resizeAspectFill
         configureConnection(view.videoPreviewLayer.connection)
+        connection = view.videoPreviewLayer.connection
+        context.coordinator.lastIsFront = isFrontCamera
         return view
     }
 
@@ -18,7 +21,15 @@ struct CameraPreviewView: UIViewRepresentable {
         if uiView.videoPreviewLayer.session !== session {
             uiView.videoPreviewLayer.session = session
         }
-        configureConnection(uiView.videoPreviewLayer.connection)
+        if context.coordinator.lastIsFront != isFrontCamera {
+            context.coordinator.lastIsFront = isFrontCamera
+            configureConnection(uiView.videoPreviewLayer.connection)
+        }
+        connection = uiView.videoPreviewLayer.connection
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
     }
 
     private func configureConnection(_ connection: AVCaptureConnection?) {
@@ -30,6 +41,10 @@ struct CameraPreviewView: UIViewRepresentable {
             connection.automaticallyAdjustsVideoMirroring = false
             connection.isVideoMirrored = isFrontCamera
         }
+    }
+
+    final class Coordinator {
+        var lastIsFront: Bool? = nil
     }
 }
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 // 取景区域
 struct ViewfinderView: View {
@@ -18,10 +19,10 @@ struct ViewfinderView: View {
     // 点击对焦提示
     @State private var focusPoint: CGPoint = .zero
     @State private var showFocusIndicator: Bool = false
+    @State private var previewConnection: AVCaptureConnection? = nil
 
     var body: some View {
         GeometryReader { proxy in
-            let previewHorizontalCrop: CGFloat = (cameraController.cameraPosition == .front) ? 1.30 : 1.0
             ZStack {
                 // 中间区域用黑色作为留白背景（letterboxing）
                 Color.black
@@ -38,12 +39,23 @@ struct ViewfinderView: View {
                         if cameraController.state == .authorized || cameraController.state == .running {
                             CameraPreviewView(
                                 session: cameraController.session,
-                                isFrontCamera: cameraController.cameraPosition == .front
+                                isFrontCamera: cameraController.cameraPosition == .front,
+                                connection: $previewConnection
                             )
-                            .scaleEffect(x: previewHorizontalCrop, y: 1.0, anchor: .center)
-                            .clipped()
+                            .modifier(LivePreviewCropModifier(
+                                cameraPosition: cameraController.cameraPosition,
+                                captureMode: cameraController.captureMode
+                            ))
                         } else {
                             Color.black
+                        }
+
+                        if cameraController.isModeSwitching || cameraController.isCameraSwitching {
+                            Rectangle()
+                                .fill(.ultraThinMaterial)
+                                .overlay(Color.black.opacity(0.15))
+                                .transition(.opacity)
+                                .allowsHitTesting(false)
                         }
 
                         // 三等分网格线，可用于构图
@@ -209,12 +221,25 @@ struct ViewfinderView: View {
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
             }
+            .onAppear {
+                cameraController.onPreviewConnectionUpdate = { position in
+                    guard let connection = previewConnection else { return }
+                    if connection.isVideoOrientationSupported {
+                        connection.videoOrientation = .portrait
+                    }
+                    if connection.isVideoMirroringSupported {
+                        connection.automaticallyAdjustsVideoMirroring = false
+                        connection.isVideoMirrored = (position == .front)
+                    }
+                }
+            }
             .task {
                 await cameraController.requestAuthorizationIfNeeded()
                 cameraController.configureIfNeeded()
                 cameraController.startSession()
             }
             .onDisappear {
+                cameraController.onPreviewConnectionUpdate = nil
                 cameraController.stopSession()
             }
         }
@@ -235,6 +260,23 @@ struct ViewfinderView: View {
 }
 
 // 三等分网格线
+struct LivePreviewCropModifier: ViewModifier {
+    let cameraPosition: AVCaptureDevice.Position
+    let captureMode: CameraSessionController.CaptureMode
+
+    func body(content: Content) -> some View {
+        let cropX: CGFloat
+        if cameraPosition == .front {
+            cropX = (captureMode == .photo) ? 1.30 : 1.0
+        } else {
+            cropX = 1.0
+        }
+        return content
+            .scaleEffect(x: cropX, y: 1.0, anchor: .center)
+            .clipped()
+    }
+}
+
 struct GridOverlayView: View {
     var body: some View {
         GeometryReader { proxy in

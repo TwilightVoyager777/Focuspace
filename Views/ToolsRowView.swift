@@ -4,7 +4,7 @@ import UIKit
 
 // 底部工具条（C1）
 struct BottomC1ToolsRowView: View {
-    let cameraController: CameraSessionController
+    @ObservedObject var cameraController: CameraSessionController
 
     enum ActiveTool {
         case none
@@ -30,19 +30,30 @@ struct BottomC1ToolsRowView: View {
     // 工具列表
     private var items: [ToolItem] {
         let levelEnabled = LevelOverlay.isSupported
-        return [
+        let isVideoMode = cameraController.captureMode == .video
+        var list: [ToolItem] = [
             ToolItem(title: "前置", systemName: "camera.rotate"),
             ToolItem(title: "白平衡", systemName: "circle.lefthalf.filled"),
             ToolItem(title: "感光", systemName: "sun.max"),
             ToolItem(title: "快门速度", systemName: "timer"),
-            ToolItem(title: "曝光", systemName: "circle.dashed"),
-            ToolItem(title: "饱和度", systemName: "drop.fill"),
-            ToolItem(title: "对比度", systemName: "circle.righthalf.filled"),
-            ToolItem(title: "锐度", systemName: "camera.filters"),
-            ToolItem(title: "色彩取消", systemName: "circle.slash"),
+            ToolItem(title: "曝光", systemName: "circle.dashed")
+        ]
+
+        if !isVideoMode {
+            list.append(contentsOf: [
+                ToolItem(title: "饱和度", systemName: "drop.fill"),
+                ToolItem(title: "对比度", systemName: "circle.righthalf.filled"),
+                ToolItem(title: "锐度", systemName: "camera.filters"),
+                ToolItem(title: "色彩取消", systemName: "circle.slash")
+            ])
+        }
+
+        list.append(contentsOf: [
             ToolItem(title: "水平仪", systemName: "ruler", isEnabled: levelEnabled),
             ToolItem(title: "设置", systemName: "gearshape")
-        ]
+        ])
+
+        return list
     }
 
     // 默认高亮项
@@ -92,6 +103,13 @@ struct BottomC1ToolsRowView: View {
         }
         .onChange(of: rulerValue) { newValue in
             applyRulerValueIfNeeded(newValue)
+        }
+        .onChange(of: cameraController.captureMode) { newValue in
+            if newValue == .video {
+                if activeTool == .sharpness || activeTool == .contrast || activeTool == .saturation {
+                    activeTool = .none
+                }
+            }
         }
     }
 

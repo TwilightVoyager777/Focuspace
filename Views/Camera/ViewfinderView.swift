@@ -8,6 +8,7 @@ struct ViewfinderView: View {
 
     // 相机会话控制器（权限 + 会话管理）
     @ObservedObject var cameraController: CameraSessionController
+    var selectedTemplate: String?
 
     // 当前缩放值（双指捏合实时更新）
     @State private var zoomValue: CGFloat = 1.0
@@ -63,6 +64,10 @@ struct ViewfinderView: View {
                                 .allowsHitTesting(false)
                         } else {
                             Color.black
+                        }
+
+                        if selectedTemplate != nil {
+                            BreathingDotView()
                         }
 
                         if cameraController.isCameraSwitching, let snapshot = cameraController.switchSnapshot {

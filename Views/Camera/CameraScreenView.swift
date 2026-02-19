@@ -6,6 +6,7 @@ struct CameraScreenView: View {
     @StateObject private var library: LocalMediaLibrary = LocalMediaLibrary.shared
     // 相机会话控制器共享到取景与快门
     @StateObject private var cameraController: CameraSessionController
+    @State private var selectedTemplate: String? = nil
 
     init() {
         _cameraController = StateObject(wrappedValue: CameraSessionController(library: LocalMediaLibrary.shared))
@@ -23,11 +24,15 @@ struct CameraScreenView: View {
                 // 顶部 / 取景 / 底部 三段结构
                 VStack(spacing: 0) {
                     TopBarView(height: topHeight, cameraController: cameraController)
-                    ViewfinderView(cameraController: cameraController)
+                    ViewfinderView(
+                        cameraController: cameraController,
+                        selectedTemplate: selectedTemplate
+                    )
                     BottomBarView(
                         height: bottomHeight,
                         cameraController: cameraController,
-                        latestThumbnail: library.latestThumbnail
+                        latestThumbnail: library.latestThumbnail,
+                        selectedTemplate: $selectedTemplate
                     )
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)

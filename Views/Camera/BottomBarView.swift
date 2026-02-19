@@ -10,6 +10,7 @@ struct BottomBarView: View {
     let height: CGFloat
     let cameraController: CameraSessionController
     let latestThumbnail: UIImage?
+    @Binding var selectedTemplate: String?
 
     @State private var bottomPanel: BottomPanel = .tools
     @State private var selectedTemplateID: String = "symmetry"
@@ -44,6 +45,7 @@ struct BottomBarView: View {
                         selectedTemplateID: $selectedTemplateID,
                         onSelect: { template in
                             selectedTemplateID = template.id
+                            selectedTemplate = template.id
                             compositionOverlay.setTemplate(template.id)
                         }
                     )

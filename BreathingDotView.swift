@@ -28,6 +28,10 @@ struct BreathingDotView: View {
 
     // 引导位移：移动整个点位（含所有层），用于提示镜头向某个方向移动。
     var guidanceOffset: CGSize = .zero
+    // 引导强度，范围 [0, 1]。
+    var strength: CGFloat = 0
+    // 是否处于对齐保持状态。
+    var isHolding: Bool = false
     // 缩放提示：zoomIn/zoomOut 时触发一次性脉冲缩放，不影响外环呼吸。
     var zoomCue: ZoomCue = .none
     // 左右倾斜提示，范围 [-1, 1]。通过压扁环形并轻微旋转表达倾斜方向。
@@ -38,7 +42,7 @@ struct BreathingDotView: View {
 
     // 位移限制：限制在安全半径内，避免点位移出视觉区域。
     private var clampedGuidanceOffset: CGSize {
-        let maxRadius: CGFloat = 40
+        let maxRadius: CGFloat = GuidanceUIConstants.maxRadiusPx
         let dx = guidanceOffset.width * maxRadius
         let dy = guidanceOffset.height * maxRadius
         let distance = sqrt(dx * dx + dy * dy)
@@ -52,6 +56,19 @@ struct BreathingDotView: View {
     // 夹取倾斜值，避免超出预期范围。
     private var clampedTilt: CGFloat {
         min(max(tiltCue, -1), 1)
+    }
+
+    private var clampedStrength: CGFloat {
+        min(max(strength, 0), 1)
+    }
+
+    private var directionSign: CGFloat {
+        guidanceOffset.width == 0 ? 0 : (guidanceOffset.width > 0 ? 1 : -1)
+    }
+
+    private var outerRingOpacity: CGFloat {
+        let base = isPulsing ? pulseOpacityTo : pulseOpacityFrom
+        return base * (isHolding ? 0.6 : 1.0)
     }
 
     // 倾斜压扁程度：|tilt| 越大，Y 方向越扁。
@@ -105,7 +122,27 @@ struct BreathingDotView: View {
                 .scaleEffect(isPulsing ? pulseScaleTo : 1.0)
                 .scaleEffect(x: 1.0, y: tiltScaleY)
                 .rotationEffect(tiltRotation)
-                .opacity(isPulsing ? pulseOpacityTo : pulseOpacityFrom)
+                .opacity(outerRingOpacity)
+                .animation(
+                    .easeInOut(duration: pulseDuration).repeatForever(autoreverses: true),
+                    value: isPulsing
+                )
+
+            // 引导弧形轨迹。
+            Circle()
+                .trim(from: 0.06, to: 0.06 + 0.10 + 0.10 * clampedStrength)
+                .stroke(
+                    Color.white.opacity(0.6 + 0.4 * clampedStrength),
+                    style: StrokeStyle(lineWidth: 1.0 + 1.2 * clampedStrength, lineCap: .round)
+                )
+                .frame(
+                    width: outerRingDiameter + 12 + 10 * clampedStrength,
+                    height: outerRingDiameter + 12 + 10 * clampedStrength
+                )
+                .opacity(isHolding ? 0 : (0.2 + 0.8 * clampedStrength))
+                .rotationEffect(
+                    .degrees((directionSign >= 0 ? 18 : -18) + (isPulsing ? 8 : -8))
+                )
                 .animation(
                     .easeInOut(duration: pulseDuration).repeatForever(autoreverses: true),
                     value: isPulsing

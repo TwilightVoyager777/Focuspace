@@ -7,6 +7,7 @@ struct CameraScreenView: View {
     // 相机会话控制器共享到取景与快门
     @StateObject private var cameraController: CameraSessionController
     @State private var selectedTemplate: String? = nil
+    @EnvironmentObject private var debugSettings: DebugSettings
 
     init() {
         _cameraController = StateObject(wrappedValue: CameraSessionController(library: LocalMediaLibrary.shared))
@@ -26,7 +27,9 @@ struct CameraScreenView: View {
                     TopBarView(height: topHeight, cameraController: cameraController)
                     ViewfinderView(
                         cameraController: cameraController,
-                        selectedTemplate: selectedTemplate
+                        selectedTemplate: selectedTemplate,
+                        guidanceUIMode: debugSettings.guidanceUIMode,
+                        showDebugHUD: debugSettings.showDebugHUD
                     )
                     BottomBarView(
                         height: bottomHeight,
@@ -36,6 +39,9 @@ struct CameraScreenView: View {
                     )
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
+                .onChange(of: selectedTemplate) { newValue in
+                    cameraController.setSelectedTemplate(newValue)
+                }
             }
             // 使用安全区，但不额外忽略，避免内容进入刘海/下巴区域
             .ignoresSafeArea(.container, edges: [])

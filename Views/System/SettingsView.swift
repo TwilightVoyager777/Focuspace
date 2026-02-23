@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var debugSettings: DebugSettings
 
     @State private var simpleMode: Bool = false
     @State private var stabilization: Bool = true
@@ -35,6 +36,11 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.plain)
                     
+                    SectionCard(title: "Debug") {
+                        ToggleRow(icon: "ladybug", title: "Show Debug HUD", isOn: $debugSettings.showDebugHUD)
+                        GuidanceModeRow(title: "Guidance UI", selection: $debugSettings.guidanceUIMode)
+                    }
+
                     SectionTitle(text: "性能")
                     CardRow(title: "性能设置", icon: "speedometer")
                     CardRow(title: "转录模式", icon: "bubble.left.and.bubble.right", trailing: "仅录制图片")
@@ -154,6 +160,43 @@ struct ToggleRow: View {
                     .background(Color.white.opacity(0.08)),
                 alignment: .bottom
             )
+    }
+}
+
+struct GuidanceModeRow: View {
+    let title: String
+    @Binding var selection: DebugSettings.GuidanceUIMode
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white.opacity(0.85))
+                .frame(width: 22)
+
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white)
+
+            Spacer()
+
+            Picker("Guidance UI", selection: $selection) {
+                Text("Moving").tag(DebugSettings.GuidanceUIMode.moving)
+                Text("Arrow").tag(DebugSettings.GuidanceUIMode.arrow)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 160)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            Color.white.opacity(0.001)
+                .overlay(
+                    Divider()
+                        .background(Color.white.opacity(0.08)),
+                    alignment: .bottom
+                )
+        )
     }
 }
 

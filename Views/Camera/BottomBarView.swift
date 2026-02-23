@@ -14,6 +14,7 @@ struct BottomBarView: View {
 
     @State private var bottomPanel: BottomPanel = .tools
     @State private var selectedTemplateID: String = "symmetry"
+    @State private var pickerHighlightedTemplateID: String? = nil
     @State private var isToolAdjusting: Bool = false
 
     private let compositionOverlay = CompositionOverlayController()
@@ -43,10 +44,22 @@ struct BottomBarView: View {
                 } else {
                     TemplateRowView(
                         selectedTemplateID: $selectedTemplateID,
+                        highlightedTemplateID: pickerHighlightedTemplateID,
                         onSelect: { template in
-                            selectedTemplateID = template.id
-                            selectedTemplate = template.id
-                            compositionOverlay.setTemplate(template.id)
+                            let tappedID = template.id
+                            if selectedTemplate == tappedID {
+                                selectedTemplateID = ""
+                                selectedTemplate = nil
+                                pickerHighlightedTemplateID = nil
+                                cameraController.setSelectedTemplate(nil)
+                                compositionOverlay.setTemplate("")
+                            } else {
+                                selectedTemplateID = tappedID
+                                selectedTemplate = tappedID
+                                pickerHighlightedTemplateID = tappedID
+                                cameraController.setSelectedTemplate(tappedID)
+                                compositionOverlay.setTemplate(tappedID)
+                            }
                         }
                     )
                     .frame(height: topRowHeight)
@@ -56,6 +69,7 @@ struct BottomBarView: View {
             .onChange(of: bottomPanel) { newValue in
                 if newValue == .templates {
                     isToolAdjusting = false
+                    pickerHighlightedTemplateID = nil
                 }
             }
             .frame(height: topRowHeight)
@@ -67,6 +81,9 @@ struct BottomBarView: View {
                 cameraController: cameraController,
                 latestThumbnail: latestThumbnail,
                 onToggleBottomPanel: {
+                    if bottomPanel == .tools {
+                        pickerHighlightedTemplateID = nil
+                    }
                     withAnimation(slideAnimation) {
                         bottomPanel = bottomPanel == .templates ? .tools : .templates
                     }

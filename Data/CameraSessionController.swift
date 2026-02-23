@@ -3,6 +3,7 @@ import CoreImage
 import CoreVideo
 import Foundation
 import Photos
+import QuartzCore
 import SwiftUI
 import UIKit
 
@@ -57,6 +58,29 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     @Published var isLevelOverlayEnabled: Bool = false
     @Published private(set) var filteredPreviewImage: CGImage? = nil
     @Published private(set) var isFilterPreviewActive: Bool = false
+    @Published private(set) var rawSymmetryDx: CGFloat = 0
+    @Published private(set) var rawSymmetryDy: CGFloat = 0
+    @Published private(set) var rawSymmetryStrength: CGFloat = 0
+    @Published private(set) var rawSymmetryConfidence: CGFloat = 0
+    @Published private(set) var stableSymmetryDx: CGFloat = 0
+    @Published private(set) var stableSymmetryDy: CGFloat = 0
+    @Published private(set) var stableSymmetryIsHolding: Bool = true
+    @Published private(set) var selectedTemplateID: String? = nil
+    @Published private(set) var effectiveAnchorNormalized: CGPoint = CGPoint(x: 0.5, y: 0.5)
+    @Published private(set) var subjectCurrentNormalized: CGPoint? = nil
+    @Published private(set) var subjectTrackScore: Float = 0
+
+    private let templateRuleEngine = TemplateRuleEngine()
+    private var symmetryStabilizer = GuidanceStabilizer2D()
+    private var subjectTracker = SubjectTrackerNCC()
+    private var latestSampleBuffer: CMSampleBuffer? = nil
+    private let subjectTrackingQueue: DispatchQueue = DispatchQueue(label: "camera.subject.tracking.queue")
+
+    private(set) var currentAutoFocusAnchorNormalized: CGPoint = CGPoint(x: 0.5, y: 0.5)
+    private(set) var userSubjectAnchorNormalized: CGPoint? = nil
+    var effectiveSubjectAnchorNormalized: CGPoint {
+        userSubjectAnchorNormalized ?? currentAutoFocusAnchorNormalized
+    }
 
     private let photoOutput: AVCapturePhotoOutput = AVCapturePhotoOutput()
     private let movieOutput: AVCaptureMovieFileOutput = AVCaptureMovieFileOutput()
@@ -311,6 +335,8 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 self.session.addOutput(self.videoDataOutput)
             }
 
+            self.resetFocusAnchorsToCenter()
+            self.applyContinuousAutoFocusAnchor(to: device)
             self.configurePhotoOutputConnection()
             self.configureMovieOutputConnection()
             self.configureVideoDataOutputConnection()
@@ -328,6 +354,10 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             guard self.isConfigured else { return }
 
             if !self.session.isRunning {
+                if let device = self.currentVideoInput?.device {
+                    self.resetFocusAnchorsToCenter()
+                    self.applyContinuousAutoFocusAnchor(to: device)
+                }
                 self.session.startRunning()
                 self.setState(.running)
             }
@@ -345,6 +375,29 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         setCaptureModeOnMain(mode)
         beginModeSwitchingAnimation()
         updateSessionPreset(for: mode)
+    }
+
+    func setSelectedTemplate(_ id: String?) {
+        DispatchQueue.main.async {
+            self.selectedTemplateID = id
+            if id == nil {
+                self.rawSymmetryDx = 0
+                self.rawSymmetryDy = 0
+                self.rawSymmetryStrength = 0
+                self.rawSymmetryConfidence = 0
+                self.stableSymmetryDx = 0
+                self.stableSymmetryDy = 0
+                self.stableSymmetryIsHolding = true
+                self.subjectCurrentNormalized = nil
+                self.subjectTrackScore = 0
+            }
+        }
+        if id == nil {
+            symmetryStabilizer.reset()
+            subjectTrackingQueue.async {
+                self.subjectTracker.reset()
+            }
+        }
     }
 
     func capturePhoto() {
@@ -503,6 +556,8 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                     self.currentVideoInput = newInput
                     self.currentPosition = newPosition
                     self.setBackLens(.wide)
+                    self.resetFocusAnchorsToCenter()
+                    self.applyContinuousAutoFocusAnchor(to: newDevice)
                 } else {
                     self.session.addInput(currentInput)
                 }
@@ -565,6 +620,20 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             guard !self.isFocusLocked else { return }
             guard let device = self.currentVideoInput?.device else { return }
 
+            self.userSubjectAnchorNormalized = point
+            self.updateEffectiveAnchor()
+
+            self.subjectTrackingQueue.async { [weak self] in
+                guard let self else { return }
+                guard let sampleBuffer = self.latestSampleBuffer else { return }
+                self.subjectTracker.lock(sampleBuffer: sampleBuffer, anchorNormalized: point)
+                let result = self.subjectTracker.update(sampleBuffer: sampleBuffer)
+                DispatchQueue.main.async {
+                    self.subjectCurrentNormalized = result.subjectCurrentNormalized
+                    self.subjectTrackScore = result.score
+                }
+            }
+
             do {
                 try device.lockForConfiguration()
 
@@ -601,8 +670,14 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                     if device.isFocusModeSupported(.continuousAutoFocus) {
                         device.focusMode = .continuousAutoFocus
                     }
+                    if device.isFocusPointOfInterestSupported {
+                        device.focusPointOfInterest = self.currentAutoFocusAnchorNormalized
+                    }
                     if device.isExposureModeSupported(.continuousAutoExposure) {
                         device.exposureMode = .continuousAutoExposure
+                    }
+                    if device.isExposurePointOfInterestSupported {
+                        device.exposurePointOfInterest = self.currentAutoFocusAnchorNormalized
                     }
                     device.isSubjectAreaChangeMonitoringEnabled = true
                     self.setFocusLocked(false)
@@ -846,6 +921,49 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         }
     }
 
+    private func resetFocusAnchorsToCenter() {
+        currentAutoFocusAnchorNormalized = CGPoint(x: 0.5, y: 0.5)
+        userSubjectAnchorNormalized = nil
+        updateEffectiveAnchor()
+        subjectTrackingQueue.async {
+            self.subjectTracker.reset()
+        }
+        DispatchQueue.main.async {
+            self.subjectCurrentNormalized = nil
+            self.subjectTrackScore = 0
+        }
+    }
+
+    private func applyContinuousAutoFocusAnchor(to device: AVCaptureDevice) {
+        do {
+            try device.lockForConfiguration()
+
+            if device.isFocusPointOfInterestSupported {
+                device.focusPointOfInterest = currentAutoFocusAnchorNormalized
+                if device.isFocusModeSupported(.continuousAutoFocus) {
+                    device.focusMode = .continuousAutoFocus
+                }
+            }
+
+            if device.isExposurePointOfInterestSupported {
+                device.exposurePointOfInterest = currentAutoFocusAnchorNormalized
+                if device.isExposureModeSupported(.continuousAutoExposure) {
+                    device.exposureMode = .continuousAutoExposure
+                }
+            }
+
+            device.unlockForConfiguration()
+        } catch {
+            // ignore
+        }
+    }
+
+    private func updateEffectiveAnchor() {
+        DispatchQueue.main.async {
+            self.effectiveAnchorNormalized = self.effectiveSubjectAnchorNormalized
+        }
+    }
+
     private func readDeviceValue<T>(_ read: @escaping (AVCaptureDevice) -> T?) -> T? {
         let block = { [weak self] () -> T? in
             guard let self, let device = self.currentVideoInput?.device else { return nil }
@@ -978,6 +1096,43 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
         return DispatchQueue.main.sync {
             captureMode
+        }
+    }
+
+    private func readSelectedTemplateID() -> String? {
+        if Thread.isMainThread {
+            return selectedTemplateID
+        }
+
+        return DispatchQueue.main.sync {
+            selectedTemplateID
+        }
+    }
+
+    private func readEffectiveSubjectAnchorNormalized() -> CGPoint {
+        if DispatchQueue.getSpecific(key: sessionQueueKey) != nil {
+            return effectiveSubjectAnchorNormalized
+        }
+
+        return sessionQueue.sync {
+            effectiveSubjectAnchorNormalized
+        }
+    }
+
+    private func setRawSymmetry(dx: CGFloat, dy: CGFloat, strength: CGFloat, confidence: CGFloat) {
+        DispatchQueue.main.async {
+            self.rawSymmetryDx = dx
+            self.rawSymmetryDy = dy
+            self.rawSymmetryStrength = strength
+            self.rawSymmetryConfidence = confidence
+        }
+    }
+
+    private func setStableSymmetry(dx: CGFloat, dy: CGFloat, isHolding: Bool) {
+        DispatchQueue.main.async {
+            self.stableSymmetryDx = dx
+            self.stableSymmetryDy = dy
+            self.stableSymmetryIsHolding = isHolding
         }
     }
 
@@ -1288,6 +1443,51 @@ extension CameraSessionController: AVCaptureFileOutputRecordingDelegate {
 
 extension CameraSessionController: AVCaptureVideoDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        subjectTrackingQueue.async { [weak self] in
+            guard let self else { return }
+            self.latestSampleBuffer = sampleBuffer
+            if self.subjectTracker.isLocked {
+                let result = self.subjectTracker.update(sampleBuffer: sampleBuffer)
+                DispatchQueue.main.async {
+                    self.subjectCurrentNormalized = result.subjectCurrentNormalized
+                    self.subjectTrackScore = result.score
+                }
+            }
+        }
+
+        let templateID = readSelectedTemplateID()
+        let template = TemplateType(id: templateID)
+        if template != .other {
+            let anchor = readEffectiveSubjectAnchorNormalized()
+            let result = templateRuleEngine.compute(
+                sampleBuffer: sampleBuffer,
+                anchorNormalized: anchor,
+                template: template
+            )
+            setRawSymmetry(
+                dx: result.dx,
+                dy: result.dy,
+                strength: result.strength,
+                confidence: result.confidence
+            )
+            let now = CACurrentMediaTime()
+            let stable = symmetryStabilizer.update(
+                rawDx: result.dx,
+                rawDy: result.dy,
+                confidence: result.confidence,
+                now: now
+            )
+            setStableSymmetry(
+                dx: stable.0,
+                dy: stable.1,
+                isHolding: symmetryStabilizer.isHolding
+            )
+        } else {
+            setRawSymmetry(dx: 0, dy: 0, strength: 0, confidence: 0)
+            symmetryStabilizer.reset()
+            setStableSymmetry(dx: 0, dy: 0, isHolding: true)
+        }
+
         guard isFilterPreviewActive else { return }
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 

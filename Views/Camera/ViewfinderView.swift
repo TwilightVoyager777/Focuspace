@@ -9,6 +9,8 @@ struct ViewfinderView: View {
     // 相机会话控制器（权限 + 会话管理）
     @ObservedObject var cameraController: CameraSessionController
     var selectedTemplate: String?
+    var guidanceUIMode: DebugSettings.GuidanceUIMode
+    var showDebugHUD: Bool
 
     // 当前缩放值（双指捏合实时更新）
     @State private var zoomValue: CGFloat = 1.0
@@ -67,7 +69,45 @@ struct ViewfinderView: View {
                         }
 
                         if selectedTemplate != nil {
-                            BreathingDotView()
+                            switch guidanceUIMode {
+                            case .moving:
+                                BreathingDotView(
+                                    guidanceOffset: CGSize(
+                                        width: cameraController.stableSymmetryDx,
+                                        height: cameraController.stableSymmetryDy
+                                    ),
+                                    zoomCue: .none,
+                                    tiltCue: 0
+                                )
+                            case .arrow:
+                                ArrowGuidanceHUDView(
+                                    guidanceOffset: CGSize(
+                                        width: cameraController.stableSymmetryDx,
+                                        height: cameraController.stableSymmetryDy
+                                    ),
+                                    strength: cameraController.rawSymmetryStrength,
+                                    isHolding: cameraController.stableSymmetryIsHolding
+                                )
+                            }
+                        }
+
+                        if showDebugHUD {
+                            GuidanceDebugHUDView(
+                                selectedTemplate: selectedTemplate,
+                                guidanceUIMode: guidanceUIMode,
+                                rawDx: cameraController.rawSymmetryDx,
+                                rawDy: cameraController.rawSymmetryDy,
+                                rawStrength: cameraController.rawSymmetryStrength,
+                                rawConfidence: cameraController.rawSymmetryConfidence,
+                                stableDx: cameraController.stableSymmetryDx,
+                                stableDy: cameraController.stableSymmetryDy,
+                                isHolding: cameraController.stableSymmetryIsHolding,
+                                subjectCurrentNormalized: cameraController.subjectCurrentNormalized,
+                                subjectTrackScore: cameraController.subjectTrackScore
+                            )
+                            .padding(8)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .allowsHitTesting(false)
                         }
 
                         if cameraController.isCameraSwitching, let snapshot = cameraController.switchSnapshot {

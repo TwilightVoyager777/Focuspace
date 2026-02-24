@@ -5,14 +5,21 @@ struct TemplateRowView: View {
     let highlightedTemplateID: String?
     let onSelect: (TemplateItem) -> Void
 
-    private let items: [TemplateItem] = [
-        TemplateItem(id: "symmetry", title: "Symmetry", imageName: "template_symmetry"),
-        TemplateItem(id: "center", title: "Center", imageName: "template_center"),
-        TemplateItem(id: "thirds", title: "Rule of Thirds", imageName: "template_thirds"),
-        TemplateItem(id: "goldenPoints", title: "Golden Points", imageName: "template_thirds"),
-        TemplateItem(id: "diagonal", title: "Diagonal", imageName: "template_center"),
-        TemplateItem(id: "negativeSpace", title: "Negative Space", imageName: "template_negative_space")
-    ]
+    private let templates: [CompositionTemplate] = sortTemplates(TemplateCatalog.load())
+
+    private var items: [TemplateItem] {
+        templates.map { template in
+            let examples = TemplateCatalog.resolvedExamples(
+                templateID: template.id,
+                explicit: template.examples
+            )
+            return TemplateItem(
+                id: template.id,
+                title: shortTitle(for: template.id, fallback: template.name),
+                imageName: examples.first ?? "template_center"
+            )
+        }
+    }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {

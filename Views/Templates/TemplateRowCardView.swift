@@ -11,31 +11,27 @@ struct TemplateRowCardView: View {
         }) {
             VStack(spacing: 8) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(Color(white: 0.16))
-                        .overlay(
-                            Image(item.imageName)
-                                .resizable()
-                                .scaledToFill()
-                                .opacity(0.9)
-                        )
-                        .overlay(Color.black.opacity(0.15))
-                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color(white: 0.12))
 
-                    Image(systemName: "sparkles.rectangle.stack")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(Color.white.opacity(0.6))
+                    CompositionDiagramView(templateID: item.id)
+                        .stroke(Color.white.opacity(0.7), lineWidth: 1)
+                        .padding(10)
+                        .allowsHitTesting(false)
                 }
-                .frame(width: 76, height: 76)
+                .frame(width: 68, height: 68)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .stroke(isSelected ? Color.orange : Color.white.opacity(0.7), lineWidth: 2)
                 )
 
                 Text(item.title)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .minimumScaleFactor(0.9)
                     .frame(maxWidth: 76)
             }
         }

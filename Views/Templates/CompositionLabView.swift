@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-struct CompositionTemplate: Identifiable {
+struct CompositionTemplate: Identifiable, TemplateSortable {
     let id: String
     let name: String
     let subtitle: String
@@ -13,7 +13,7 @@ struct CompositionLabView: View {
     let selectTemplate: (String) -> Void
     let closeLab: () -> Void
 
-    private let templates: [CompositionTemplate] = TemplateCatalog.load()
+    private let templates: [CompositionTemplate] = sortTemplates(TemplateCatalog.load())
     private let columns = [
         GridItem(.adaptive(minimum: 150), spacing: 16)
     ]

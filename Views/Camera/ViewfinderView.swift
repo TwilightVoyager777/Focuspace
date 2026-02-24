@@ -72,21 +72,9 @@ struct ViewfinderView: View {
                                 width: cameraController.stableSymmetryDx,
                                 height: cameraController.stableSymmetryDy
                             )
-                            let debugInfo = TemplateRuleEngine.debugInfo()
-                            let templateType = TemplateType(id: selectedTemplate)
-                            let targetPoint = debugInfo.targetPoint ?? CGPoint(x: 0.5, y: 0.5)
-                            let overlayModel = TemplateOverlayModel(
-                                template: templateType,
-                                targetPoint: targetPoint,
-                                strength: cameraController.rawSymmetryStrength,
-                                selectedDiagonal: debugInfo.diagonalType,
-                                negativeSpaceZone: debugInfo.negativeSpaceZone
-                            )
-
-                            if templateType != .other {
-                                TemplateOverlayView(model: overlayModel)
-                                    .allowsHitTesting(false)
-                            }
+                            CompositionDiagramView(templateID: selectedTemplate)
+                                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                                .allowsHitTesting(false)
 
                             switch guidanceUIMode {
                             case .moving:
@@ -346,5 +334,4 @@ struct ViewfinderView: View {
         Swift.max(min, Swift.min(value, max))
     }
 }
-
 

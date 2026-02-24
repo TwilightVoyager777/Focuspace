@@ -1,0 +1,2 @@
+# Ignore local image assets (keep on disk, don't track in git)
+Assets.xcassets/images/

@@ -4,6 +4,7 @@ import SwiftUI
 struct TopBarView: View {
     let height: CGFloat
     @ObservedObject var cameraController: CameraSessionController
+    let onSelectTemplate: (String) -> Void
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -28,7 +29,7 @@ struct TopBarView: View {
                         Spacer()
 
                         NavigationLink {
-                            SettingsView()
+                            SettingsView(onSelectTemplate: onSelectTemplate)
                         } label: {
                             CircularIconButtonView(systemName: "ellipsis")
                         }

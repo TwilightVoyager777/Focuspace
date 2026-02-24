@@ -24,7 +24,11 @@ struct CameraScreenView: View {
 
                 // 顶部 / 取景 / 底部 三段结构
                 VStack(spacing: 0) {
-                    TopBarView(height: topHeight, cameraController: cameraController)
+                    TopBarView(
+                        height: topHeight,
+                        cameraController: cameraController,
+                        onSelectTemplate: { selectedTemplate = $0 }
+                    )
                     ViewfinderView(
                         cameraController: cameraController,
                         selectedTemplate: selectedTemplate,

@@ -3,14 +3,13 @@ import AVFoundation
 
 // 取景区域
 struct ViewfinderView: View {
-    // 是否显示网格线（构图辅助）
-    private let showsGrid: Bool = true
-
     // 相机会话控制器（权限 + 会话管理）
     @ObservedObject var cameraController: CameraSessionController
     var selectedTemplate: String?
     var guidanceUIMode: DebugSettings.GuidanceUIMode
     var showDebugHUD: Bool
+
+    @EnvironmentObject private var debugSettings: DebugSettings
 
     // 当前缩放值（双指捏合实时更新）
     @State private var zoomValue: CGFloat = 1.0
@@ -68,23 +67,37 @@ struct ViewfinderView: View {
                             Color.black
                         }
 
-                        if selectedTemplate != nil {
+                        if let selectedTemplate {
+                            let subjectOffset = CGSize(
+                                width: cameraController.stableSymmetryDx,
+                                height: cameraController.stableSymmetryDy
+                            )
+                            let debugInfo = TemplateRuleEngine.debugInfo()
+                            let templateType = TemplateType(id: selectedTemplate)
+                            let targetPoint = debugInfo.targetPoint ?? CGPoint(x: 0.5, y: 0.5)
+                            let overlayModel = TemplateOverlayModel(
+                                template: templateType,
+                                targetPoint: targetPoint,
+                                strength: cameraController.rawSymmetryStrength,
+                                selectedDiagonal: debugInfo.diagonalType,
+                                negativeSpaceZone: debugInfo.negativeSpaceZone
+                            )
+
+                            if templateType != .other {
+                                TemplateOverlayView(model: overlayModel)
+                                    .allowsHitTesting(false)
+                            }
+
                             switch guidanceUIMode {
                             case .moving:
-                                BreathingDotView(
-                                    guidanceOffset: CGSize(
-                                        width: cameraController.stableSymmetryDx,
-                                        height: cameraController.stableSymmetryDy
-                                    ),
-                                    zoomCue: .none,
-                                    tiltCue: 0
+                                GuidanceLayeredDotHUDView(
+                                    guidanceOffset: subjectOffset,
+                                    strength: cameraController.rawSymmetryStrength,
+                                    isHolding: cameraController.stableSymmetryIsHolding
                                 )
                             case .arrow:
                                 ArrowGuidanceHUDView(
-                                    guidanceOffset: CGSize(
-                                        width: cameraController.stableSymmetryDx,
-                                        height: cameraController.stableSymmetryDy
-                                    ),
+                                    guidanceOffset: subjectOffset,
                                     strength: cameraController.rawSymmetryStrength,
                                     isHolding: cameraController.stableSymmetryIsHolding
                                 )
@@ -103,7 +116,8 @@ struct ViewfinderView: View {
                                 stableDy: cameraController.stableSymmetryDy,
                                 isHolding: cameraController.stableSymmetryIsHolding,
                                 subjectCurrentNormalized: cameraController.subjectCurrentNormalized,
-                                subjectTrackScore: cameraController.subjectTrackScore
+                                subjectTrackScore: cameraController.subjectTrackScore,
+                                subjectIsLost: cameraController.subjectIsLost
                             )
                             .padding(8)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -126,7 +140,7 @@ struct ViewfinderView: View {
                         }
 
                         // 三等分网格线，可用于构图
-                        if showsGrid {
+                        if debugSettings.showGridOverlay && selectedTemplate == nil {
                             GridOverlayView()
                                 .padding(1)
                         }

@@ -1,12 +1,12 @@
 import SwiftUI
 
 struct SettingsView: View {
+    let onSelectTemplate: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var debugSettings: DebugSettings
 
     @State private var simpleMode: Bool = false
     @State private var stabilization: Bool = true
-    @State private var grid: Bool = false
     @State private var level: Bool = true
     @State private var saveHint: Bool = true
 
@@ -22,7 +22,7 @@ struct SettingsView: View {
                     SectionCard(title: "拍摄") {
                         ToggleRow(icon: "camera", title: "简易模式", isOn: $simpleMode)
                         ToggleRow(icon: "camera.on.rectangle", title: "稳定器", isOn: $stabilization)
-                        ToggleRow(icon: "square.grid.3x3", title: "预览网格", isOn: $grid)
+                        ToggleRow(icon: "square.grid.3x3", title: "预览网格", isOn: $debugSettings.showGridOverlay)
                         ToggleRow(icon: "ruler", title: "水平指示器", isOn: $level)
                         ToggleRow(icon: "square.and.arrow.down", title: "存储空间提示", isOn: $saveHint)
                         InfoRow(icon: "mappin.and.ellipse", title: "录制保存地理位置", trailing: "前往授权")
@@ -30,7 +30,10 @@ struct SettingsView: View {
 
                     SectionTitle(text: "Creative")
                     NavigationLink {
-                        CompositionLabView(selectTemplate: { _ in })
+                        CompositionLabView(
+                            selectTemplate: onSelectTemplate,
+                            closeLab: { dismiss() }
+                        )
                     } label: {
                         CardRow(title: "Composition Lab", icon: "square.grid.2x2")
                     }

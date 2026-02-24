@@ -1,0 +1,112 @@
+[
+  {
+    "id": "rule_of_thirds",
+    "name": "Rule of Thirds",
+    "subtitle": "Balance and dynamic tension",
+    "philosophy": "Let the subject breathe within the frame.",
+    "examples": [
+      "rule_of_thirds_01",
+      "rule_of_thirds_02"
+    ]
+  },
+  {
+    "id": "golden_spiral",
+    "name": "Golden Spiral",
+    "subtitle": "Natural visual flow",
+    "philosophy": "Guide attention along a quiet curve.",
+    "examples": [
+      "golden_spiral_01",
+      "golden_spiral_02"
+    ]
+  },
+  {
+    "id": "center",
+    "name": "Center Composition",
+    "subtitle": "Intentional symmetry",
+    "philosophy": "Centering creates calm, confident focus.",
+    "examples": [
+      "center_01",
+      "center_02"
+    ]
+  },
+  {
+    "id": "symmetry",
+    "name": "Symmetry",
+    "subtitle": "Reflections and balance",
+    "philosophy": "Mirror the scene for a refined order.",
+    "examples": [
+      "symmetry_01",
+      "symmetry_02"
+    ]
+  },
+  {
+    "id": "leading_lines",
+    "name": "Leading Lines",
+    "subtitle": "Direct the viewer",
+    "philosophy": "Use lines to draw focus with intent.",
+    "examples": [
+      "leading_lines_01",
+      "leading_lines_02"
+    ]
+  },
+  {
+    "id": "framing",
+    "name": "Framing",
+    "subtitle": "Layers and depth",
+    "philosophy": "Build a visual window for the subject.",
+    "examples": [
+      "framing_01",
+      "framing_02"
+    ]
+  },
+  {
+    "id": "negative_space",
+    "name": "Negative Space",
+    "subtitle": "Minimal emphasis",
+    "philosophy": "Let emptiness amplify the subject.",
+    "examples": [
+      "negative_space_01",
+      "negative_space_02"
+    ]
+  },
+  {
+    "id": "portrait_headroom",
+    "name": "Portrait Headroom",
+    "subtitle": "Eyes & headroom",
+    "philosophy": "Place eyes with intent and keep headroom clean.",
+    "examples": [
+      "portrait_headroom_01",
+      "portrait_headroom_02"
+    ]
+  },
+  {
+    "id": "diagonals",
+    "name": "Diagonals",
+    "subtitle": "Dynamic tension",
+    "philosophy": "Diagonal structure creates energy and motion.",
+    "examples": [
+      "diagonals_01",
+      "diagonals_02"
+    ]
+  },
+  {
+    "id": "triangle",
+    "name": "Triangle Composition",
+    "subtitle": "Stable geometry",
+    "philosophy": "Triangles add balance and strong visual structure.",
+    "examples": [
+      "triangle_01",
+      "triangle_02"
+    ]
+  },
+  {
+    "id": "layers_fmb",
+    "name": "Layers (F–M–B)",
+    "subtitle": "Depth & story",
+    "philosophy": "Foreground, midground, background create depth and context.",
+    "examples": [
+      "layers_fmb_01",
+      "layers_fmb_02"
+    ]
+  }
+]

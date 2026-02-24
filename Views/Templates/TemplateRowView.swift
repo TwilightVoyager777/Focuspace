@@ -11,10 +11,7 @@ struct TemplateRowView: View {
         TemplateItem(id: "thirds", title: "三分法", imageName: "template_thirds"),
         TemplateItem(id: "goldenPoints", title: "黄金点", imageName: "template_thirds"),
         TemplateItem(id: "diagonal", title: "对角线", imageName: "template_center"),
-        TemplateItem(id: "negativeSpaceLeft", title: "留白-左", imageName: "template_negative_space"),
-        TemplateItem(id: "negativeSpaceRight", title: "留白-右", imageName: "template_negative_space"),
-        TemplateItem(id: "negativeSpaceTop", title: "留白-上", imageName: "template_negative_space"),
-        TemplateItem(id: "negativeSpaceBottom", title: "留白-下", imageName: "template_negative_space")
+        TemplateItem(id: "negativeSpace", title: "留白", imageName: "template_negative_space")
     ]
 
     var body: some View {

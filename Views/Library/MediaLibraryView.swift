@@ -69,7 +69,7 @@ struct MediaLibraryView: View {
 
             Spacer()
 
-            Text("媒体库")
+            Text("Media Library")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundColor(.white)
 
@@ -83,7 +83,7 @@ struct MediaLibraryView: View {
                 }
 
                 Button(action: toggleSelectionMode) {
-                    Text(isSelecting ? "取消" : "选择")
+                    Text(isSelecting ? "Cancel" : "Select")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(.white)
                 }
@@ -93,7 +93,7 @@ struct MediaLibraryView: View {
 
     private var warningBanner: some View {
         HStack {
-            Text("注意！卸载 App 会清空素材且无法恢复！")
+            Text("Warning! Uninstalling the app will erase all media and cannot be recovered!")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.white)
 
@@ -116,7 +116,7 @@ struct MediaLibraryView: View {
             HStack(spacing: 6) {
                 Image(systemName: isAllSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 14, weight: .semibold))
-                Text("全选")
+                Text("Select All")
                     .font(.system(size: 13, weight: .semibold))
             }
             .foregroundColor(.white)
@@ -133,13 +133,13 @@ struct MediaLibraryView: View {
             switch selectedTab {
             case .materials:
                 if library.materials.isEmpty {
-                    emptyState(text: "素材库为空或当前筛选条件无素材")
+                    emptyState(text: "No items in the library or no results for this filter")
                 } else {
                     mediaGrid(items: library.materials)
                 }
             case .recycle:
                 if library.trashed.isEmpty {
-                    emptyState(text: "回收站为空")
+                    emptyState(text: "Trash is empty")
                 } else {
                     mediaGrid(items: library.trashed)
                 }
@@ -198,7 +198,7 @@ struct MediaLibraryView: View {
                     .disabled(isDisabled)
                     .opacity(isDisabled ? 0.4 : 1.0)
 
-                    Text(isTrash ? "恢复" : "删除")
+                    Text(isTrash ? "Restore" : "Delete")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(.white)
                         .opacity(isDisabled ? 0.4 : 1.0)
@@ -206,7 +206,7 @@ struct MediaLibraryView: View {
 
                 Spacer()
 
-                Text("已选中 \(selectedIDs.count) 项")
+                Text("Selected \(selectedIDs.count) items")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.white)
 
@@ -232,7 +232,7 @@ struct MediaLibraryView: View {
                     .disabled(isDisabled)
                     .opacity(isDisabled ? 0.4 : 1.0)
 
-                    Text(isTrash ? "彻底删除" : "导出")
+                    Text(isTrash ? "Delete Permanently" : "Export")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(.white)
                         .opacity(isDisabled ? 0.4 : 1.0)
@@ -247,11 +247,11 @@ struct MediaLibraryView: View {
 
     private var bottomTabs: some View {
         HStack(spacing: 18) {
-            tabItem(title: "素材", systemName: "photo.on.rectangle", isSelected: selectedTab == .materials) {
+            tabItem(title: "Library", systemName: "photo.on.rectangle", isSelected: selectedTab == .materials) {
                 selectedTab = .materials
                 clearSelectionIfNeeded()
             }
-            tabItem(title: "回收站", systemName: "trash", isSelected: selectedTab == .recycle) {
+            tabItem(title: "Trash", systemName: "trash", isSelected: selectedTab == .recycle) {
                 selectedTab = .recycle
                 clearSelectionIfNeeded()
             }

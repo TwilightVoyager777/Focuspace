@@ -6,12 +6,12 @@ struct TemplateRowView: View {
     let onSelect: (TemplateItem) -> Void
 
     private let items: [TemplateItem] = [
-        TemplateItem(id: "symmetry", title: "对称", imageName: "template_symmetry"),
-        TemplateItem(id: "center", title: "居中", imageName: "template_center"),
-        TemplateItem(id: "thirds", title: "三分法", imageName: "template_thirds"),
-        TemplateItem(id: "goldenPoints", title: "黄金点", imageName: "template_thirds"),
-        TemplateItem(id: "diagonal", title: "对角线", imageName: "template_center"),
-        TemplateItem(id: "negativeSpace", title: "留白", imageName: "template_negative_space")
+        TemplateItem(id: "symmetry", title: "Symmetry", imageName: "template_symmetry"),
+        TemplateItem(id: "center", title: "Center", imageName: "template_center"),
+        TemplateItem(id: "thirds", title: "Rule of Thirds", imageName: "template_thirds"),
+        TemplateItem(id: "goldenPoints", title: "Golden Points", imageName: "template_thirds"),
+        TemplateItem(id: "diagonal", title: "Diagonal", imageName: "template_center"),
+        TemplateItem(id: "negativeSpace", title: "Negative Space", imageName: "template_negative_space")
     ]
 
     var body: some View {
@@ -31,4 +31,3 @@ struct TemplateRowView: View {
         .background(Color.black.allowsHitTesting(false))
     }
 }
-

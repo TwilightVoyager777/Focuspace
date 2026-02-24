@@ -19,13 +19,13 @@ struct SettingsView: View {
                 VStack(spacing: 16) {
                     header
 
-                    SectionCard(title: "拍摄") {
-                        ToggleRow(icon: "camera", title: "简易模式", isOn: $simpleMode)
-                        ToggleRow(icon: "camera.on.rectangle", title: "稳定器", isOn: $stabilization)
-                        ToggleRow(icon: "square.grid.3x3", title: "预览网格", isOn: $debugSettings.showGridOverlay)
-                        ToggleRow(icon: "ruler", title: "水平指示器", isOn: $level)
-                        ToggleRow(icon: "square.and.arrow.down", title: "存储空间提示", isOn: $saveHint)
-                        InfoRow(icon: "mappin.and.ellipse", title: "录制保存地理位置", trailing: "前往授权")
+                    SectionCard(title: "Capture") {
+                        ToggleRow(icon: "camera", title: "Simple Mode", isOn: $simpleMode)
+                        ToggleRow(icon: "camera.on.rectangle", title: "Stabilization", isOn: $stabilization)
+                        ToggleRow(icon: "square.grid.3x3", title: "Preview Grid", isOn: $debugSettings.showGridOverlay)
+                        ToggleRow(icon: "ruler", title: "Level Indicator", isOn: $level)
+                        ToggleRow(icon: "square.and.arrow.down", title: "Storage Warning", isOn: $saveHint)
+                        InfoRow(icon: "mappin.and.ellipse", title: "Save Location for Recordings", trailing: "Grant Access")
                     }
 
                     SectionTitle(text: "Creative")
@@ -44,16 +44,16 @@ struct SettingsView: View {
                         GuidanceModeRow(title: "Guidance UI", selection: $debugSettings.guidanceUIMode)
                     }
 
-                    SectionTitle(text: "性能")
-                    CardRow(title: "性能设置", icon: "speedometer")
-                    CardRow(title: "转录模式", icon: "bubble.left.and.bubble.right", trailing: "仅录制图片")
+                    SectionTitle(text: "Performance")
+                    CardRow(title: "Performance Settings", icon: "speedometer")
+                    CardRow(title: "Recording Mode", icon: "bubble.left.and.bubble.right", trailing: "Images Only")
 
-                    SectionTitle(text: "通用")
+                    SectionTitle(text: "General")
 
-                    CardRow(title: "清除缓存", icon: "trash", trailing: "51.38MB")
-                    CardRow(title: "关于我们", icon: "info.circle")
-                    CardRow(title: "常见问题", icon: "questionmark.circle")
-                    CardRow(title: "反馈与建议", icon: "envelope")
+                    CardRow(title: "Clear Cache", icon: "trash", trailing: "51.38MB")
+                    CardRow(title: "About", icon: "info.circle")
+                    CardRow(title: "FAQ", icon: "questionmark.circle")
+                    CardRow(title: "Feedback", icon: "envelope")
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 6)
@@ -79,7 +79,7 @@ struct SettingsView: View {
 
             Spacer()
 
-            Text("设置")
+            Text("Settings")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.white)
 

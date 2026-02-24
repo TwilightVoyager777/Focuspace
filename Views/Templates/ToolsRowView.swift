@@ -36,31 +36,31 @@ struct BottomC1ToolsRowView: View {
         let levelEnabled = LevelOverlay.isSupported
         let isVideoMode = cameraController.captureMode == .video
         var list: [ToolItem] = [
-            ToolItem(title: "前置", systemName: "camera.rotate"),
-            ToolItem(title: "白平衡", systemName: "circle.lefthalf.filled"),
-            ToolItem(title: "感光", systemName: "sun.max"),
-            ToolItem(title: "快门速度", systemName: "timer"),
-            ToolItem(title: "曝光", systemName: "circle.dashed")
+            ToolItem(title: "Front", systemName: "camera.rotate"),
+            ToolItem(title: "White Balance", systemName: "circle.lefthalf.filled"),
+            ToolItem(title: "ISO", systemName: "sun.max"),
+            ToolItem(title: "Shutter", systemName: "timer"),
+            ToolItem(title: "Exposure", systemName: "circle.dashed")
         ]
 
         if !isVideoMode {
             list.append(contentsOf: [
-                ToolItem(title: "饱和度", systemName: "drop.fill"),
-                ToolItem(title: "对比度", systemName: "circle.righthalf.filled"),
-                ToolItem(title: "锐度", systemName: "camera.filters"),
-                ToolItem(title: "色彩取消", systemName: "circle.slash")
+                ToolItem(title: "Saturation", systemName: "drop.fill"),
+                ToolItem(title: "Contrast", systemName: "circle.righthalf.filled"),
+                ToolItem(title: "Sharpness", systemName: "camera.filters"),
+                ToolItem(title: "Color Off", systemName: "circle.slash")
             ])
         }
 
         list.append(contentsOf: [
-            ToolItem(title: "水平仪", systemName: "ruler", isEnabled: levelEnabled)
+            ToolItem(title: "Level", systemName: "ruler", isEnabled: levelEnabled)
         ])
 
         return list
     }
 
     // 默认高亮项
-    private let selectedTitle: String = "感光"
+    private let selectedTitle: String = "ISO"
 
     var body: some View {
         ZStack {
@@ -147,23 +147,23 @@ struct BottomC1ToolsRowView: View {
 
     private func isItemSelected(_ item: ToolItem) -> Bool {
         switch item.title {
-        case "水平仪":
+        case "Level":
             return levelOn
-        case "色彩取消":
+        case "Color Off":
             return colorOff
-        case "白平衡":
+        case "White Balance":
             return activeTool == .wb
-        case "感光":
+        case "ISO":
             return activeTool == .iso
-        case "快门速度":
+        case "Shutter":
             return activeTool == .shutter
-        case "曝光":
+        case "Exposure":
             return activeTool == .ev
-        case "锐度":
+        case "Sharpness":
             return activeTool == .sharpness
-        case "对比度":
+        case "Contrast":
             return activeTool == .contrast
-        case "饱和度":
+        case "Saturation":
             return activeTool == .saturation
         default:
             return item.title == selectedTitle
@@ -172,27 +172,27 @@ struct BottomC1ToolsRowView: View {
 
     private func handleTap(for title: String) {
         switch title {
-        case "前置":
+        case "Front":
             cameraController.switchCamera()
-        case "水平仪":
+        case "Level":
             levelOn.toggle()
             cameraController.isLevelOverlayEnabled = levelOn
-        case "色彩取消":
+        case "Color Off":
             colorOff.toggle()
             cameraController.setFilterColorOff(colorOff)
-        case "白平衡":
+        case "White Balance":
             toggleActiveTool(.wb)
-        case "感光":
+        case "ISO":
             toggleActiveTool(.iso)
-        case "快门速度":
+        case "Shutter":
             toggleActiveTool(.shutter)
-        case "曝光":
+        case "Exposure":
             toggleActiveTool(.ev)
-        case "锐度":
+        case "Sharpness":
             toggleActiveTool(.sharpness)
-        case "对比度":
+        case "Contrast":
             toggleActiveTool(.contrast)
-        case "饱和度":
+        case "Saturation":
             toggleActiveTool(.saturation)
         default:
             break
@@ -520,4 +520,3 @@ struct BottomC1ToolsRowView: View {
         return range.lowerBound + span * t
     }
 }
-

@@ -80,7 +80,7 @@ struct SegmentedModeView: View {
             Button {
                 onSelect(.video)
             } label: {
-                Text("视频")
+                Text("Video")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(captureMode == .video ? .white : .white.opacity(0.6))
                     .padding(.horizontal, 12)
@@ -93,7 +93,7 @@ struct SegmentedModeView: View {
             Button {
                 onSelect(.photo)
             } label: {
-                Text("照片")
+                Text("Photo")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(captureMode == .photo ? .white : .white.opacity(0.6))
                     .padding(.horizontal, 12)

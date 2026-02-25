@@ -19,8 +19,18 @@ struct CameraScreenView: View {
                 let screenHeight = proxy.size.height
                 // 顶部高度按屏幕比例计算，并限制最小/最大值，保证不同机型一致观感
                 let topHeight = clamp(screenHeight * 0.07, min: 48, max: 72)
-                // 底部高度按屏幕比例计算，并限制最小/最大值
-                let bottomHeight = clamp(screenHeight * 0.18, min: 180, max: 280)
+                // 先为 4:3 取景框 + 顶部间距让路，空间不足时优先压缩底栏
+                let desiredTopGap: CGFloat = 14
+                let viewfinderHeight = proxy.size.width * 4.0 / 3.0
+                let minBottomHeight: CGFloat = 160
+                let preferredBottomHeight = clamp(screenHeight * 0.24, min: 200, max: 300)
+                let spaceAfterTopAndViewfinder = screenHeight - topHeight - viewfinderHeight
+                let maxBottomToKeepTopGap = spaceAfterTopAndViewfinder - desiredTopGap
+                let bottomHeight = clamp(
+                    preferredBottomHeight,
+                    min: minBottomHeight,
+                    max: max(minBottomHeight, maxBottomToKeepTopGap)
+                )
 
                 // 顶部 / 取景 / 底部 三段结构
                 VStack(spacing: 0) {

@@ -19,7 +19,7 @@ struct TemplateRowCardView: View {
                         .padding(10)
                         .allowsHitTesting(false)
                 }
-                .frame(width: 68, height: 68)
+                .frame(width: 60, height: 60)
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .stroke(isSelected ? Color.orange : Color.white.opacity(0.7), lineWidth: 2)
@@ -32,7 +32,7 @@ struct TemplateRowCardView: View {
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .minimumScaleFactor(0.9)
-                    .frame(maxWidth: 76)
+                    .frame(maxWidth: 68)
             }
         }
         .buttonStyle(.plain)

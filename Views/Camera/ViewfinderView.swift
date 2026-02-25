@@ -30,12 +30,18 @@ struct ViewfinderView: View {
                 // 中间区域用黑色作为留白背景（letterboxing）
                 Color.black
 
-                // 4:3 取景区域居中显示
+                // 4:3 取景区域，宽度与屏幕一致（更接近原生相机观感）
+                let desiredTopGap: CGFloat = 14
                 let viewfinderWidth = proxy.size.width
-                let viewfinderHeight = proxy.size.width * 4.0 / 3.0
+                let viewfinderHeight = viewfinderWidth * 4.0 / 3.0
+                let remainingHeight = max(0, proxy.size.height - viewfinderHeight)
+                // 在居中基础上增加固定顶部间距，确保与 TopBar 有明确分离
+                let topGap = min(remainingHeight, remainingHeight * 0.5 + desiredTopGap)
+                let bottomGap = max(0, remainingHeight - topGap)
 
                 VStack(spacing: 0) {
-                    Spacer()
+                    Color.clear
+                        .frame(height: topGap)
 
                     ZStack {
                         // 相机预览层（授权后显示真实画面）
@@ -53,14 +59,12 @@ struct ViewfinderView: View {
                                 }
                             )
                             .modifier(LivePreviewCropModifier(
-                                cameraPosition: cameraController.cameraPosition,
-                                captureMode: cameraController.captureMode
+                                horizontalScale: cameraController.frontPreviewHorizontalScale
                             ))
 
                             FilteredPreviewOverlayView(cameraController: cameraController)
                                 .modifier(LivePreviewCropModifier(
-                                    cameraPosition: cameraController.cameraPosition,
-                                    captureMode: cameraController.captureMode
+                                    horizontalScale: cameraController.frontPreviewHorizontalScale
                                 ))
                                 .allowsHitTesting(false)
                         } else {
@@ -76,9 +80,9 @@ struct ViewfinderView: View {
                                 model: TemplateOverlayModel(
                                     templateId: selectedTemplate,
                                     strength: cameraController.rawSymmetryStrength,
-                                    targetPoint: nil,
-                                    diagonalKind: nil,
-                                    negativeSpaceZone: nil
+                                    targetPoint: cameraController.overlayTargetPoint,
+                                    diagonalType: cameraController.overlayDiagonalType,
+                                    negativeSpaceZone: cameraController.overlayNegativeSpaceZone
                                 )
                             )
                                 .allowsHitTesting(false)
@@ -296,7 +300,8 @@ struct ViewfinderView: View {
                             }
                     )
 
-                    Spacer()
+                    Color.clear
+                        .frame(height: bottomGap)
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
             }

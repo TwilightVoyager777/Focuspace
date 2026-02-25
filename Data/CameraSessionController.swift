@@ -56,6 +56,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     @Published var previewFreeze: Bool = false
     @Published var switchSnapshot: UIImage? = nil
     @Published private(set) var cameraPosition: AVCaptureDevice.Position = .back
+    @Published private(set) var frontPreviewHorizontalScale: CGFloat = 1.0
     @Published var isLevelOverlayEnabled: Bool = false
     @Published private(set) var filteredPreviewImage: CGImage? = nil
     @Published private(set) var isFilterPreviewActive: Bool = false
@@ -66,6 +67,9 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     @Published private(set) var stableSymmetryDx: CGFloat = 0
     @Published private(set) var stableSymmetryDy: CGFloat = 0
     @Published private(set) var stableSymmetryIsHolding: Bool = true
+    @Published private(set) var overlayTargetPoint: CGPoint? = nil
+    @Published private(set) var overlayDiagonalType: DiagonalType? = nil
+    @Published private(set) var overlayNegativeSpaceZone: CGRect? = nil
     @Published private(set) var selectedTemplateID: String? = nil
     @Published private(set) var effectiveAnchorNormalized: CGPoint = CGPoint(x: 0.5, y: 0.5)
     @Published private(set) var subjectCurrentNormalized: CGPoint? = nil
@@ -349,6 +353,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             self.updateMinUIZoomForCurrentPosition()
             self.updateFlashSupport(for: device)
             self.setCameraPosition(self.currentPosition)
+            self.updateFrontPreviewHorizontalScale(for: device, mode: self.readCaptureMode(), position: self.currentPosition)
         }
     }
 
@@ -384,6 +389,9 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     func setSelectedTemplate(_ id: String?) {
         DispatchQueue.main.async {
             self.selectedTemplateID = id
+            self.overlayTargetPoint = nil
+            self.overlayDiagonalType = nil
+            self.overlayNegativeSpaceZone = nil
             if id == nil {
                 self.rawSymmetryDx = 0
                 self.rawSymmetryDy = 0
@@ -574,6 +582,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 self.configurePhotoOutputConnection()
                 self.configureMovieOutputConnection()
                 self.setCameraPosition(newPosition)
+                self.updateFrontPreviewHorizontalScale(for: newDevice, mode: self.readCaptureMode(), position: newPosition)
                 self.applyVideoConnectionsForCurrentState(position: newPosition)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
                     withAnimation(.easeInOut(duration: 0.18)) {
@@ -1189,6 +1198,14 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         }
     }
 
+    private func setOverlayHints(targetPoint: CGPoint?, diagonalType: DiagonalType?, negativeSpaceZone: CGRect?) {
+        DispatchQueue.main.async {
+            self.overlayTargetPoint = targetPoint
+            self.overlayDiagonalType = diagonalType
+            self.overlayNegativeSpaceZone = negativeSpaceZone
+        }
+    }
+
     private func beginModeSwitchingAnimation() {
         DispatchQueue.main.async {
             withAnimation(.easeOut(duration: 0.12)) {
@@ -1220,6 +1237,9 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             self.session.beginConfiguration()
             self.session.sessionPreset = preset
             self.session.commitConfiguration()
+            if let device = self.currentVideoInput?.device {
+                self.updateFrontPreviewHorizontalScale(for: device, mode: mode, position: self.currentPosition)
+            }
         }
     }
 
@@ -1342,6 +1362,25 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         DispatchQueue.main.async {
             self.captureMode = value
         }
+    }
+
+    private func setFrontPreviewHorizontalScale(_ value: CGFloat) {
+        DispatchQueue.main.async {
+            self.frontPreviewHorizontalScale = value
+        }
+    }
+
+    private func updateFrontPreviewHorizontalScale(
+        for device: AVCaptureDevice,
+        mode: CaptureMode,
+        position: AVCaptureDevice.Position
+    ) {
+        _ = device
+        guard mode == .photo, position == .front else {
+            setFrontPreviewHorizontalScale(1.0)
+            return
+        }
+        setFrontPreviewHorizontalScale(1.3)
     }
 
     private func setRecording(_ value: Bool) {
@@ -1523,16 +1562,21 @@ extension CameraSessionController: AVCaptureVideoDataOutputSampleBufferDelegate 
                 autoFocusAnchorNormalized: readCurrentAutoFocusAnchorNormalized()
             )
             setRawSymmetry(
-                dx: result.dx,
-                dy: result.dy,
-                strength: result.strength,
-                confidence: result.confidence
+                dx: result.guidance.dx,
+                dy: result.guidance.dy,
+                strength: result.guidance.strength,
+                confidence: result.guidance.confidence
+            )
+            setOverlayHints(
+                targetPoint: result.targetPoint,
+                diagonalType: result.diagonalType,
+                negativeSpaceZone: result.negativeSpaceZone
             )
             let now = CACurrentMediaTime()
             let stable = symmetryStabilizer.update(
-                rawDx: result.dx,
-                rawDy: result.dy,
-                confidence: result.confidence,
+                rawDx: result.guidance.dx,
+                rawDy: result.guidance.dy,
+                confidence: result.guidance.confidence,
                 now: now
             )
             setStableSymmetry(
@@ -1542,6 +1586,7 @@ extension CameraSessionController: AVCaptureVideoDataOutputSampleBufferDelegate 
             )
         } else {
             setRawSymmetry(dx: 0, dy: 0, strength: 0, confidence: 0)
+            setOverlayHints(targetPoint: nil, diagonalType: nil, negativeSpaceZone: nil)
             symmetryStabilizer.reset()
             setStableSymmetry(dx: 0, dy: 0, isHolding: true)
         }

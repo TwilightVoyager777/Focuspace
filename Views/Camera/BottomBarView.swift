@@ -17,14 +17,25 @@ struct BottomBarView: View {
     @State private var pickerHighlightedTemplateID: String? = nil
     @State private var isToolAdjusting: Bool = false
 
-    private let topRowHeight: CGFloat = 110
-
-    private var panelOffset: CGFloat {
-        bottomPanel == .templates || isToolAdjusting ? 20 : 0
+    private var verticalPadding: CGFloat {
+        clamp(height * 0.03, min: 4, max: 8)
     }
 
-    private var bottomControlsOffset: CGFloat {
-        -35 + (bottomPanel == .templates ? 12 : 0)
+    private var rowSpacing: CGFloat {
+        clamp(height * 0.05, min: 6, max: 12)
+    }
+
+    private var contentHeight: CGFloat {
+        max(0, height - (verticalPadding * 2) - rowSpacing)
+    }
+
+    private var controlsHeight: CGFloat {
+        clamp(contentHeight * 0.42, min: 86, max: 92)
+    }
+
+    private var topRowHeight: CGFloat {
+        let remaining = contentHeight - controlsHeight
+        return clamp(remaining, min: 52, max: 110)
     }
 
     private var slideAnimation: Animation {
@@ -32,36 +43,41 @@ struct BottomBarView: View {
     }
 
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: rowSpacing) {
             // 工具条（可横向滚动）
             ZStack {
-                if bottomPanel == .tools {
-                    BottomC1ToolsRowView(
-                        cameraController: cameraController,
-                        isAdjusting: $isToolAdjusting
-                    )
-                } else {
-                    TemplateRowView(
-                        selectedTemplateID: $selectedTemplateID,
-                        highlightedTemplateID: pickerHighlightedTemplateID,
-                        onSelect: { template in
-                            let tappedID = template.id
-                            if selectedTemplate == tappedID {
-                                selectedTemplateID = ""
-                                selectedTemplate = nil
-                                pickerHighlightedTemplateID = nil
-                                cameraController.setSelectedTemplate(nil)
-                            } else {
-                                selectedTemplateID = tappedID
-                                selectedTemplate = tappedID
-                                pickerHighlightedTemplateID = tappedID
-                                cameraController.setSelectedTemplate(tappedID)
-                            }
+                BottomC1ToolsRowView(
+                    cameraController: cameraController,
+                    isAdjusting: $isToolAdjusting
+                )
+                .offset(y: -6)
+                .opacity(bottomPanel == .tools ? 1 : 0)
+                .offset(y: bottomPanel == .tools ? 0 : -10)
+                .allowsHitTesting(bottomPanel == .tools)
+
+                TemplateRowView(
+                    selectedTemplateID: $selectedTemplateID,
+                    highlightedTemplateID: pickerHighlightedTemplateID,
+                    onSelect: { template in
+                        let tappedID = template.id
+                        if selectedTemplate == tappedID {
+                            selectedTemplateID = ""
+                            selectedTemplate = nil
+                            pickerHighlightedTemplateID = nil
+                            cameraController.setSelectedTemplate(nil)
+                        } else {
+                            selectedTemplateID = tappedID
+                            selectedTemplate = tappedID
+                            pickerHighlightedTemplateID = tappedID
+                            cameraController.setSelectedTemplate(tappedID)
                         }
-                    )
-                    .frame(height: topRowHeight)
-                    .clipped()
-                }
+                    }
+                )
+                .frame(height: topRowHeight)
+                .clipped()
+                .opacity(bottomPanel == .templates ? 1 : 0)
+                .offset(y: bottomPanel == .templates ? 8 : 10)
+                .allowsHitTesting(bottomPanel == .templates)
             }
             .onChange(of: bottomPanel) { newValue in
                 if newValue == .templates {
@@ -70,7 +86,6 @@ struct BottomBarView: View {
                 }
             }
             .frame(height: topRowHeight)
-            .offset(y: panelOffset - 7)
             .animation(slideAnimation, value: bottomPanel)
 
             // 下方控制行：缩略图 + 快门 + 切换镜头
@@ -86,14 +101,19 @@ struct BottomBarView: View {
                     }
                 }
             )
-            .offset(y: panelOffset + bottomControlsOffset)
+            .frame(height: controlsHeight)
+            .offset(y: bottomPanel == .templates ? 12 : -14)
             .animation(slideAnimation, value: bottomPanel)
         }
         .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
+        .padding(.top, verticalPadding)
+        .padding(.bottom, verticalPadding)
         .background(Color.black)
         .frame(height: height)
         .frame(maxWidth: .infinity)
+    }
+
+    private func clamp(_ value: CGFloat, min: CGFloat, max: CGFloat) -> CGFloat {
+        Swift.max(min, Swift.min(value, max))
     }
 }

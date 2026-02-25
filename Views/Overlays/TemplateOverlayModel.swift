@@ -4,6 +4,6 @@ struct TemplateOverlayModel {
     var templateId: String
     var strength: CGFloat
     var targetPoint: CGPoint?
-    var diagonalKind: Int?
+    var diagonalType: DiagonalType?
     var negativeSpaceZone: CGRect?
 }

@@ -30,6 +30,13 @@ enum TemplateType {
     }
 }
 
+struct TemplateComputationResult {
+    var guidance: GuidanceOutput
+    var targetPoint: CGPoint?
+    var diagonalType: DiagonalType?
+    var negativeSpaceZone: CGRect?
+}
+
 struct TemplateRuleEngine {
     private let symmetryEngine = SymmetryRuleEngine()
     private let centerEngine = CenterRuleEngine()
@@ -55,7 +62,7 @@ struct TemplateRuleEngine {
         subjectIsLost: Bool,
         userSubjectAnchorNormalized: CGPoint?,
         autoFocusAnchorNormalized: CGPoint
-    ) -> GuidanceOutput {
+    ) -> TemplateComputationResult {
         let fallbackAnchor = CGPoint(
             x: clamp(anchorNormalized.x, min: 0, max: 1),
             y: clamp(anchorNormalized.y, min: 0, max: 1)
@@ -73,6 +80,7 @@ struct TemplateRuleEngine {
         var boundsAnchor = fallbackAnchor
         var debugDiagonal: DiagonalType? = nil
         var debugNegativeZone: CGRect? = nil
+        var overlayTargetPoint: CGPoint? = nil
         switch template {
         case .symmetry:
             let subject = resolved.point
@@ -86,6 +94,7 @@ struct TemplateRuleEngine {
             boundsAnchor = subject
         case .center:
             let subject = resolved.point
+            overlayTargetPoint = CGPoint(x: 0.5, y: 0.5)
             var dx = (0.5 - subject.x)
             var dy = (0.5 - subject.y)
             dx = clamp(dx, min: -1, max: 1)
@@ -110,6 +119,7 @@ struct TemplateRuleEngine {
                     bestTarget = target
                 }
             }
+            overlayTargetPoint = bestTarget
 
             var dx = (bestTarget.x - subject.x)
             var dy = (bestTarget.y - subject.y)
@@ -137,6 +147,7 @@ struct TemplateRuleEngine {
                     bestTarget = target
                 }
             }
+            overlayTargetPoint = bestTarget
 
             var dx = (bestTarget.x - subject.x)
             var dy = (bestTarget.y - subject.y)
@@ -156,6 +167,7 @@ struct TemplateRuleEngine {
             let isMain = squaredDistance(subject, c1) <= squaredDistance(subject, c2)
             let chosen = isMain ? c1 : c2
             debugDiagonal = isMain ? .main : .anti
+            overlayTargetPoint = chosen
 
             var dx = (chosen.x - subject.x)
             var dy = (chosen.y - subject.y)
@@ -167,6 +179,9 @@ struct TemplateRuleEngine {
         case .negativeSpace:
             let subject = resolved.point
             debugNegativeZone = negativeSpaceZoneRect(anchorNormalized: subject)
+            if let zone = debugNegativeZone {
+                overlayTargetPoint = closestPointInRect(subject, zone)
+            }
             base = negativeSpaceGuidance(anchorNormalized: subject, confidence: resolved.confidence)
             boundsAnchor = subject
         case .other:
@@ -176,7 +191,7 @@ struct TemplateRuleEngine {
 
         let bounded = applyBoundsConstraint(anchor: boundsAnchor, guidance: base)
         let subjectPoint = resolved.point
-        let targetPoint = CGPoint(
+        let debugTargetPoint = CGPoint(
             x: clamp(subjectPoint.x + bounded.dx, min: 0, max: 1),
             y: clamp(subjectPoint.y + bounded.dy, min: 0, max: 1)
         )
@@ -202,7 +217,7 @@ struct TemplateRuleEngine {
         let debugInfo = GuidanceDebugInfo(
             templateType: templateLabel,
             subjectPoint: subjectPoint,
-            targetPoint: targetPoint,
+            targetPoint: debugTargetPoint,
             gTemplate: gTemplate,
             templateConfidence: bounded.confidence,
             errMag: errMag,
@@ -211,7 +226,12 @@ struct TemplateRuleEngine {
             negativeSpaceZone: debugNegativeZone
         )
         TemplateRuleEngine.setDebugInfo(debugInfo)
-        return bounded
+        return TemplateComputationResult(
+            guidance: bounded,
+            targetPoint: overlayTargetPoint,
+            diagonalType: debugDiagonal,
+            negativeSpaceZone: debugNegativeZone
+        )
     }
 
     private func resolveSubjectPoint(

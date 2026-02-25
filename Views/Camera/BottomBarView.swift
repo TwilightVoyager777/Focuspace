@@ -42,6 +42,21 @@ struct BottomBarView: View {
         .easeInOut(duration: 0.35)
     }
 
+    private var isToolAdjustingActive: Bool {
+        bottomPanel == .tools && isToolAdjusting
+    }
+
+    private var toolsRowOffsetY: CGFloat {
+        isToolAdjustingActive ? 10 : -6
+    }
+
+    private var bottomControlsOffsetY: CGFloat {
+        if bottomPanel == .templates {
+            return 12
+        }
+        return isToolAdjustingActive ? 14 : -14
+    }
+
     var body: some View {
         VStack(spacing: rowSpacing) {
             // 工具条（可横向滚动）
@@ -50,7 +65,7 @@ struct BottomBarView: View {
                     cameraController: cameraController,
                     isAdjusting: $isToolAdjusting
                 )
-                .offset(y: -6)
+                .offset(y: toolsRowOffsetY)
                 .opacity(bottomPanel == .tools ? 1 : 0)
                 .offset(y: bottomPanel == .tools ? 0 : -10)
                 .allowsHitTesting(bottomPanel == .tools)
@@ -102,7 +117,7 @@ struct BottomBarView: View {
                 }
             )
             .frame(height: controlsHeight)
-            .offset(y: bottomPanel == .templates ? 12 : -14)
+            .offset(y: bottomControlsOffsetY)
             .animation(slideAnimation, value: bottomPanel)
         }
         .padding(.horizontal, 16)

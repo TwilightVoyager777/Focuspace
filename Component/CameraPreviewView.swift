@@ -6,7 +6,6 @@ struct CameraPreviewView: UIViewRepresentable {
     let session: AVCaptureSession
     let isFrontCamera: Bool
     let previewFreeze: Bool
-    @Binding var connection: AVCaptureConnection?
     let onPreviewView: (PreviewView) -> Void
 
     func makeUIView(context: Context) -> PreviewView {
@@ -14,7 +13,6 @@ struct CameraPreviewView: UIViewRepresentable {
         view.videoPreviewLayer.session = session
         view.videoPreviewLayer.videoGravity = .resizeAspectFill
         configureConnection(view.videoPreviewLayer.connection)
-        updateConnectionBinding(view.videoPreviewLayer.connection, context: context)
         context.coordinator.lastIsFront = isFrontCamera
         onPreviewView(view)
         return view
@@ -29,7 +27,6 @@ struct CameraPreviewView: UIViewRepresentable {
             configureConnection(uiView.videoPreviewLayer.connection)
         }
         uiView.videoPreviewLayer.connection?.isEnabled = !previewFreeze
-        updateConnectionBinding(uiView.videoPreviewLayer.connection, context: context)
         onPreviewView(uiView)
     }
 
@@ -48,18 +45,8 @@ struct CameraPreviewView: UIViewRepresentable {
         }
     }
 
-    private func updateConnectionBinding(_ newConnection: AVCaptureConnection?, context: Context) {
-        guard context.coordinator.lastConnection !== newConnection else { return }
-        context.coordinator.lastConnection = newConnection
-        Task { @MainActor in
-            await Task.yield()
-            connection = newConnection
-        }
-    }
-
     final class Coordinator {
         var lastIsFront: Bool? = nil
-        var lastConnection: AVCaptureConnection? = nil
     }
 }
 
@@ -93,5 +80,11 @@ final class PreviewView: UIView {
         return renderer.image { ctx in
             layer.render(in: ctx.cgContext)
         }
+    }
+
+    // 预览层当前可见区域，转换为 0...1 的输出归一化坐标
+    func visibleMetadataOutputRect() -> CGRect {
+        let rect = videoPreviewLayer.metadataOutputRectConverted(fromLayerRect: bounds)
+        return rect.standardized
     }
 }

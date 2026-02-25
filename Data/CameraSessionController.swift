@@ -56,7 +56,6 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     @Published var previewFreeze: Bool = false
     @Published var switchSnapshot: UIImage? = nil
     @Published private(set) var cameraPosition: AVCaptureDevice.Position = .back
-    @Published private(set) var frontPreviewHorizontalScale: CGFloat = 1.0
     @Published var isLevelOverlayEnabled: Bool = false
     @Published private(set) var filteredPreviewImage: CGImage? = nil
     @Published private(set) var isFilterPreviewActive: Bool = false
@@ -105,9 +104,11 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     private var currentPosition: AVCaptureDevice.Position = .back
     private var pendingRecordingID: UUID? = nil
     private var recordingTimer: Timer? = nil
+    private let photoCropStateQueue: DispatchQueue = DispatchQueue(label: "camera.photo.crop.state.queue")
+    private var pendingPhotoCropRectByID: [Int64: CGRect] = [:]
 
-    var onPreviewConnectionUpdate: ((AVCaptureDevice.Position) -> Void)?
     var snapshotProvider: (() -> UIImage?)?
+    var previewVisibleRectProvider: (() -> CGRect?)?
 
     init(library: LocalMediaLibrary) {
         self.mediaLibrary = library
@@ -306,7 +307,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             self.session.beginConfiguration()
             self.session.sessionPreset = self.captureMode == .video ? .high : .photo
 
-            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: self.currentPosition) else {
+            guard let device = self.defaultCameraDevice(for: self.currentPosition) else {
                 self.session.commitConfiguration()
                 self.setState(.unavailable)
                 return
@@ -343,6 +344,8 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 self.session.addOutput(self.videoDataOutput)
             }
 
+            self.updateOutputsForMode(self.captureMode)
+
             self.resetFocusAnchorsToCenter()
             self.applyContinuousAutoFocusAnchor(to: device)
             self.configurePhotoOutputConnection()
@@ -353,7 +356,6 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             self.updateMinUIZoomForCurrentPosition()
             self.updateFlashSupport(for: device)
             self.setCameraPosition(self.currentPosition)
-            self.updateFrontPreviewHorizontalScale(for: device, mode: self.readCaptureMode(), position: self.currentPosition)
         }
     }
 
@@ -451,6 +453,8 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 settings.flashMode = .off
             }
 
+            let visibleRect = self.readPreviewVisibleRectNormalized()
+            self.storePendingPhotoCropRect(visibleRect, for: settings.uniqueID)
             self.configurePhotoOutputConnection()
             self.photoOutput.capturePhoto(with: settings, delegate: self)
         }
@@ -557,7 +561,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             guard let currentInput = self.currentVideoInput else { return }
 
             let newPosition: AVCaptureDevice.Position = self.currentPosition == .back ? .front : .back
-            guard let newDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: newPosition) else { return }
+            guard let newDevice = self.defaultCameraDevice(for: newPosition) else { return }
 
             do {
                 let newInput = try AVCaptureDeviceInput(device: newDevice)
@@ -581,11 +585,10 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 self.updateFlashSupport(for: newDevice)
                 self.configurePhotoOutputConnection()
                 self.configureMovieOutputConnection()
-                self.setCameraPosition(newPosition)
-                self.updateFrontPreviewHorizontalScale(for: newDevice, mode: self.readCaptureMode(), position: newPosition)
                 self.applyVideoConnectionsForCurrentState(position: newPosition)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
                     withAnimation(.easeInOut(duration: 0.18)) {
+                        self?.cameraPosition = newPosition
                         self?.previewFreeze = false
                         self?.isCameraSwitching = false
                         self?.switchSnapshot = nil
@@ -1236,11 +1239,37 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
             self.session.beginConfiguration()
             self.session.sessionPreset = preset
+            self.updateOutputsForMode(mode)
             self.session.commitConfiguration()
-            if let device = self.currentVideoInput?.device {
-                self.updateFrontPreviewHorizontalScale(for: device, mode: mode, position: self.currentPosition)
+            self.configureMovieOutputConnection()
+            self.configureVideoDataOutputConnection()
+        }
+    }
+
+    private func updateOutputsForMode(_ mode: CaptureMode) {
+        switch mode {
+        case .photo:
+            if session.outputs.contains(where: { $0 === movieOutput }) {
+                session.removeOutput(movieOutput)
+            }
+        case .video:
+            if !session.outputs.contains(where: { $0 === movieOutput }),
+               session.canAddOutput(movieOutput) {
+                session.addOutput(movieOutput)
             }
         }
+    }
+
+    private func defaultCameraDevice(for position: AVCaptureDevice.Position) -> AVCaptureDevice? {
+        if position == .front {
+            let discovery = AVCaptureDevice.DiscoverySession(
+                deviceTypes: [.builtInTrueDepthCamera, .builtInWideAngleCamera],
+                mediaType: .video,
+                position: .front
+            )
+            return discovery.devices.first
+        }
+        return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
     }
 
     private func readIsFlashSupported() -> Bool {
@@ -1317,9 +1346,6 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 connection.isVideoMirrored = (position == .front)
             }
         }
-        DispatchQueue.main.async { [weak self] in
-            self?.onPreviewConnectionUpdate?(position)
-        }
     }
 
     private func setCameraPosition(_ position: AVCaptureDevice.Position) {
@@ -1364,23 +1390,47 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         }
     }
 
-    private func setFrontPreviewHorizontalScale(_ value: CGFloat) {
-        DispatchQueue.main.async {
-            self.frontPreviewHorizontalScale = value
+    private func readPreviewVisibleRectNormalized() -> CGRect? {
+        if Thread.isMainThread {
+            return sanitizeNormalizedRect(previewVisibleRectProvider?())
+        }
+        return DispatchQueue.main.sync {
+            sanitizeNormalizedRect(previewVisibleRectProvider?())
         }
     }
 
-    private func updateFrontPreviewHorizontalScale(
-        for device: AVCaptureDevice,
-        mode: CaptureMode,
-        position: AVCaptureDevice.Position
-    ) {
-        _ = device
-        guard mode == .photo, position == .front else {
-            setFrontPreviewHorizontalScale(1.0)
-            return
+    private func storePendingPhotoCropRect(_ rect: CGRect?, for uniqueID: Int64) {
+        photoCropStateQueue.sync {
+            if let rect {
+                pendingPhotoCropRectByID[uniqueID] = rect
+            } else {
+                pendingPhotoCropRectByID.removeValue(forKey: uniqueID)
+            }
         }
-        setFrontPreviewHorizontalScale(1.3)
+    }
+
+    private func consumePendingPhotoCropRect(for uniqueID: Int64) -> CGRect? {
+        photoCropStateQueue.sync {
+            defer { pendingPhotoCropRectByID.removeValue(forKey: uniqueID) }
+            return pendingPhotoCropRectByID[uniqueID]
+        }
+    }
+
+    private func sanitizeNormalizedRect(_ rect: CGRect?) -> CGRect? {
+        guard let rect else { return nil }
+        let unit = CGRect(x: 0, y: 0, width: 1, height: 1)
+        let normalized = rect.standardized.intersection(unit)
+        guard !normalized.isNull, normalized.width > 0, normalized.height > 0 else { return nil }
+        return normalized
+    }
+
+    private func needsCropping(_ normalizedRect: CGRect?) -> Bool {
+        guard let rect = sanitizeNormalizedRect(normalizedRect) else { return false }
+        let epsilon: CGFloat = 0.001
+        return abs(rect.minX) > epsilon
+            || abs(rect.minY) > epsilon
+            || abs(rect.width - 1) > epsilon
+            || abs(rect.height - 1) > epsilon
     }
 
     private func setRecording(_ value: Bool) {
@@ -1439,6 +1489,8 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
 extension CameraSessionController: AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        let cropRect = consumePendingPhotoCropRect(for: photo.resolvedSettings.uniqueID)
+
         if error != nil {
             setCaptureResult(success: false, message: "Capture failed")
             return
@@ -1450,9 +1502,17 @@ extension CameraSessionController: AVCapturePhotoCaptureDelegate {
         }
 
         let settings = currentFilterSettings()
+        let applyFilters = isFilterActive(settings)
+        let applyCrop = needsCropping(cropRect)
         let outputData: Data
-        if isFilterActive(settings), let filtered = applyFiltersToPhotoData(data, settings: settings) {
-            outputData = filtered
+        if (applyFilters || applyCrop),
+           let processed = processPhotoData(
+               data,
+               settings: settings,
+               applyFilters: applyFilters,
+               cropRectNormalized: cropRect
+           ) {
+            outputData = processed
         } else {
             outputData = data
         }
@@ -1509,27 +1569,55 @@ extension CameraSessionController: AVCaptureFileOutputRecordingDelegate {
         print("Video metadata: natural=\(natural) transform=\(transform) display=\(displaySize)")
     }
 
-    private func applyFiltersToPhotoData(_ data: Data, settings: FilterSettings) -> Data? {
-        guard var image = CIImage(data: data) else { return nil }
-        let saturation = settings.colorOff ? 0.0 : settings.saturation
+    private func processPhotoData(
+        _ data: Data,
+        settings: FilterSettings,
+        applyFilters: Bool,
+        cropRectNormalized: CGRect?
+    ) -> Data? {
+        guard var image = CIImage(data: data, options: [.applyOrientationProperty: true]) else { return nil }
 
-        image = image.applyingFilter(
-            "CIColorControls",
-            parameters: [
-                kCIInputSaturationKey: saturation,
-                kCIInputContrastKey: settings.contrast
-            ]
-        )
+        if applyFilters {
+            let saturation = settings.colorOff ? 0.0 : settings.saturation
+            image = image.applyingFilter(
+                "CIColorControls",
+                parameters: [
+                    kCIInputSaturationKey: saturation,
+                    kCIInputContrastKey: settings.contrast
+                ]
+            )
 
-        image = image.applyingFilter(
-            "CISharpenLuminance",
-            parameters: [
-                kCIInputSharpnessKey: settings.sharpness
-            ]
-        )
+            image = image.applyingFilter(
+                "CISharpenLuminance",
+                parameters: [
+                    kCIInputSharpnessKey: settings.sharpness
+                ]
+            )
+        }
+
+        if let cropRect = sanitizeNormalizedRect(cropRectNormalized), needsCropping(cropRect) {
+            image = cropImage(image, toNormalizedRect: cropRect)
+        }
 
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         return ciContext.jpegRepresentation(of: image, colorSpace: colorSpace, options: [:])
+    }
+
+    private func cropImage(_ image: CIImage, toNormalizedRect normalizedRect: CGRect) -> CIImage {
+        let extent = image.extent
+        guard extent.width > 0, extent.height > 0 else { return image }
+
+        // 元数据坐标原点在左上角，CIImage 坐标原点在左下角，需做一次 Y 轴翻转
+        let cropRect = CGRect(
+            x: extent.minX + normalizedRect.minX * extent.width,
+            y: extent.minY + (1.0 - normalizedRect.maxY) * extent.height,
+            width: normalizedRect.width * extent.width,
+            height: normalizedRect.height * extent.height
+        ).integral
+
+        let safeRect = cropRect.intersection(extent)
+        guard !safeRect.isNull, safeRect.width > 0, safeRect.height > 0 else { return image }
+        return image.cropped(to: safeRect)
     }
 }
 

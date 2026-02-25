@@ -1,5 +1,4 @@
 import SwiftUI
-import AVFoundation
 
 // 取景区域
 struct ViewfinderView: View {
@@ -21,8 +20,6 @@ struct ViewfinderView: View {
     // 点击对焦提示
     @State private var focusPoint: CGPoint = .zero
     @State private var showFocusIndicator: Bool = false
-    @State private var previewConnection: AVCaptureConnection? = nil
-    @State private var previewViewRef: PreviewView? = nil
 
     var body: some View {
         GeometryReader { proxy in
@@ -50,21 +47,24 @@ struct ViewfinderView: View {
                                 session: cameraController.session,
                                 isFrontCamera: cameraController.cameraPosition == .front,
                                 previewFreeze: cameraController.previewFreeze,
-                                connection: $previewConnection,
                                 onPreviewView: { view in
-                                    Task { @MainActor in
-                                        await Task.yield()
-                                        previewViewRef = view
+                                    cameraController.snapshotProvider = { [weak view] in
+                                        view?.snapshotImage()
+                                    }
+                                    cameraController.previewVisibleRectProvider = { [weak view] in
+                                        view?.visibleMetadataOutputRect()
                                     }
                                 }
                             )
                             .modifier(LivePreviewCropModifier(
-                                horizontalScale: cameraController.frontPreviewHorizontalScale
+                                cameraPosition: cameraController.cameraPosition,
+                                captureMode: cameraController.captureMode
                             ))
 
                             FilteredPreviewOverlayView(cameraController: cameraController)
                                 .modifier(LivePreviewCropModifier(
-                                    horizontalScale: cameraController.frontPreviewHorizontalScale
+                                    cameraPosition: cameraController.cameraPosition,
+                                    captureMode: cameraController.captureMode
                                 ))
                                 .allowsHitTesting(false)
                         } else {
@@ -306,19 +306,6 @@ struct ViewfinderView: View {
                 .frame(width: proxy.size.width, height: proxy.size.height)
             }
             .onAppear {
-                cameraController.onPreviewConnectionUpdate = { position in
-                    guard let connection = previewConnection else { return }
-                    if connection.isVideoOrientationSupported {
-                        connection.videoOrientation = .portrait
-                    }
-                    if connection.isVideoMirroringSupported {
-                        connection.automaticallyAdjustsVideoMirroring = false
-                        connection.isVideoMirrored = (position == .front)
-                    }
-                }
-                cameraController.snapshotProvider = { [weak previewViewRef] in
-                    previewViewRef?.snapshotImage()
-                }
             }
             .task {
                 await cameraController.requestAuthorizationIfNeeded()
@@ -326,8 +313,8 @@ struct ViewfinderView: View {
                 cameraController.startSession()
             }
             .onDisappear {
-                cameraController.onPreviewConnectionUpdate = nil
                 cameraController.snapshotProvider = nil
+                cameraController.previewVisibleRectProvider = nil
                 cameraController.stopSession()
             }
         }

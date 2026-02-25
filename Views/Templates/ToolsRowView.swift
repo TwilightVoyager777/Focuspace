@@ -99,7 +99,7 @@ struct BottomC1ToolsRowView: View {
                         activeTool = .none
                     }
                 )
-                .offset(y: -20)
+                .offset(y: -8)
                 .onDisappear {
                     isAdjusting = false
                 }

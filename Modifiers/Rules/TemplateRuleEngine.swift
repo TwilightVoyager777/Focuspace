@@ -16,13 +16,13 @@ enum TemplateType {
             self = .symmetry
         case "center":
             self = .center
-        case "thirds":
+        case "rule_of_thirds", "thirds":
             self = .thirds
-        case "goldenPoints":
+        case "golden_spiral", "goldenPoints":
             self = .goldenPoints
-        case "diagonal":
+        case "diagonals", "diagonal":
             self = .diagonal
-        case "negativeSpace":
+        case "negative_space", "negativeSpace":
             self = .negativeSpace
         default:
             self = .other
@@ -189,13 +189,13 @@ struct TemplateRuleEngine {
         case .center:
             templateLabel = "center"
         case .thirds:
-            templateLabel = "thirds"
+            templateLabel = "rule_of_thirds"
         case .goldenPoints:
-            templateLabel = "goldenPoints"
+            templateLabel = "golden_spiral"
         case .diagonal:
-            templateLabel = "diagonal"
+            templateLabel = "diagonals"
         case .negativeSpace:
-            templateLabel = "negativeSpace"
+            templateLabel = "negative_space"
         case .other:
             templateLabel = "other"
         }

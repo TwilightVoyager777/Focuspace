@@ -72,8 +72,15 @@ struct ViewfinderView: View {
                                 width: cameraController.stableSymmetryDx,
                                 height: cameraController.stableSymmetryDy
                             )
-                            CompositionDiagramView(templateID: selectedTemplate)
-                                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                            TemplateOverlayView(
+                                model: TemplateOverlayModel(
+                                    templateId: selectedTemplate,
+                                    strength: cameraController.rawSymmetryStrength,
+                                    targetPoint: nil,
+                                    diagonalKind: nil,
+                                    negativeSpaceZone: nil
+                                )
+                            )
                                 .allowsHitTesting(false)
 
                             switch guidanceUIMode {
@@ -334,4 +341,3 @@ struct ViewfinderView: View {
         Swift.max(min, Swift.min(value, max))
     }
 }
-

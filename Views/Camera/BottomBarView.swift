@@ -17,7 +17,6 @@ struct BottomBarView: View {
     @State private var pickerHighlightedTemplateID: String? = nil
     @State private var isToolAdjusting: Bool = false
 
-    private let compositionOverlay = CompositionOverlayController()
     private let topRowHeight: CGFloat = 110
 
     private var panelOffset: CGFloat {
@@ -52,13 +51,11 @@ struct BottomBarView: View {
                                 selectedTemplate = nil
                                 pickerHighlightedTemplateID = nil
                                 cameraController.setSelectedTemplate(nil)
-                                compositionOverlay.setTemplate("")
                             } else {
                                 selectedTemplateID = tappedID
                                 selectedTemplate = tappedID
                                 pickerHighlightedTemplateID = tappedID
                                 cameraController.setSelectedTemplate(tappedID)
-                                compositionOverlay.setTemplate(tappedID)
                             }
                         }
                     )

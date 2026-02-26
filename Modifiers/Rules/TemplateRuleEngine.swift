@@ -4,6 +4,8 @@ import CoreMedia
 enum TemplateType {
     case symmetry
     case center
+    case leadingLines
+    case framing
     case thirds
     case goldenPoints
     case diagonal
@@ -16,6 +18,10 @@ enum TemplateType {
             self = .symmetry
         case "center":
             self = .center
+        case "leading_lines":
+            self = .leadingLines
+        case "framing":
+            self = .framing
         case "rule_of_thirds", "thirds":
             self = .thirds
         case "golden_spiral", "goldenPoints":
@@ -78,6 +84,8 @@ struct TemplateRuleEngine {
 
         var base = GuidanceOutput(dx: 0, dy: 0, strength: 0, confidence: 0)
         var boundsAnchor = fallbackAnchor
+        var boundsMargin: CGFloat = 0.10
+        var boundsWeight: CGFloat = 3.0
         var debugDiagonal: DiagonalType? = nil
         var debugNegativeZone: CGRect? = nil
         var overlayTargetPoint: CGPoint? = nil
@@ -85,22 +93,110 @@ struct TemplateRuleEngine {
         case .symmetry:
             let subject = resolved.point
             let result = symmetryEngine.compute(sampleBuffer: sampleBuffer, anchorNormalized: subject)
-            base = GuidanceOutput(
-                dx: result.dx,
-                dy: 0,
-                strength: result.strength,
-                confidence: result.confidence
+            let target = CGPoint(x: 0.5, y: subject.y)
+            overlayTargetPoint = target
+            let geometricDx = target.x - subject.x
+            let blendedDx = (result.dx * 0.75) + (geometricDx * 0.25)
+            let blendedConfidence = clamp(
+                (result.confidence * 0.7) + (resolved.confidence * 0.3),
+                min: 0,
+                max: 1
             )
+            base = tunedGuidance(
+                rawDx: blendedDx,
+                rawDy: 0,
+                confidence: blendedConfidence,
+                gainX: 1.15,
+                gainY: 0,
+                deadZone: 0.020,
+                activeRange: 0.34,
+                confidenceFloor: 0.22
+            )
+            boundsMargin = 0.08
+            boundsWeight = 2.6
             boundsAnchor = subject
         case .center:
             let subject = resolved.point
-            overlayTargetPoint = CGPoint(x: 0.5, y: 0.5)
-            var dx = (0.5 - subject.x)
-            var dy = (0.5 - subject.y)
-            dx = clamp(dx, min: -1, max: 1)
-            dy = clamp(dy, min: -1, max: 1)
-            let strength = min(1, sqrt(dx * dx + dy * dy))
-            base = GuidanceOutput(dx: dx, dy: dy, strength: strength, confidence: resolved.confidence)
+            let target = CGPoint(x: 0.5, y: 0.5)
+            overlayTargetPoint = target
+            let centerResult = centerEngine.compute(sampleBuffer: sampleBuffer, anchorNormalized: subject)
+            let geometricDx = target.x - subject.x
+            let geometricDy = target.y - subject.y
+            let imageWeight: CGFloat
+            switch resolved.source {
+            case "tap", "vision":
+                imageWeight = 0.0
+            default:
+                imageWeight = 0.30
+            }
+            let geometricWeight = 1 - imageWeight
+            var blendedDx = (geometricDx * geometricWeight) + (centerResult.dx * imageWeight)
+            var blendedDy = (geometricDy * geometricWeight) + (centerResult.dy * imageWeight)
+            if abs(geometricDx) > 0.001, blendedDx * geometricDx < 0 {
+                blendedDx = geometricDx
+            }
+            if abs(geometricDy) > 0.001, blendedDy * geometricDy < 0 {
+                blendedDy = geometricDy
+            }
+            let blendedConfidence = clamp(
+                (resolved.confidence * geometricWeight) + (centerResult.confidence * imageWeight),
+                min: 0,
+                max: 1
+            )
+            base = tunedGuidance(
+                rawDx: blendedDx,
+                rawDy: blendedDy,
+                confidence: blendedConfidence,
+                gainX: 1.0,
+                gainY: 1.0,
+                deadZone: 0.028,
+                activeRange: 0.30,
+                confidenceFloor: 0.18
+            )
+            boundsMargin = 0.09
+            boundsWeight = 2.4
+            boundsAnchor = subject
+        case .leadingLines:
+            let subject = resolved.point
+            let target = CGPoint(x: 0.66, y: 0.33)
+            overlayTargetPoint = target
+            let geometricDx = target.x - subject.x
+            let geometricDy = target.y - subject.y
+            base = tunedGuidance(
+                rawDx: geometricDx,
+                rawDy: geometricDy,
+                confidence: resolved.confidence,
+                gainX: 1.05,
+                gainY: 1.05,
+                deadZone: 0.030,
+                activeRange: 0.38,
+                confidenceFloor: 0.18
+            )
+            boundsMargin = 0.09
+            boundsWeight = 2.2
+            boundsAnchor = subject
+        case .framing:
+            let subject = resolved.point
+            let frameRect = CGRect(x: 0.20, y: 0.20, width: 0.60, height: 0.60)
+            let center = CGPoint(x: 0.5, y: 0.5)
+            let inFrameTarget = closestPointInRect(subject, frameRect)
+            let target = CGPoint(
+                x: (inFrameTarget.x * 0.8) + (center.x * 0.2),
+                y: (inFrameTarget.y * 0.8) + (center.y * 0.2)
+            )
+            overlayTargetPoint = target
+            base = tunedGuidance(
+                rawDx: target.x - subject.x,
+                rawDy: target.y - subject.y,
+                confidence: resolved.confidence,
+                gainX: 0.95,
+                gainY: 0.95,
+                deadZone: 0.028,
+                activeRange: 0.30,
+                confidenceFloor: 0.18
+            )
+            boundsMargin = 0.10
+            boundsWeight = 2.1
             boundsAnchor = subject
         case .thirds:
             let subject = resolved.point
@@ -138,23 +234,27 @@ struct TemplateRuleEngine {
                 CGPoint(x: a, y: b),
                 CGPoint(x: b, y: b)
             ]
-            var bestTarget = targets[0]
-            var bestDistance = squaredDistance(subject, targets[0])
-            for target in targets.dropFirst() {
-                let d = squaredDistance(subject, target)
-                if d < bestDistance {
-                    bestDistance = d
-                    bestTarget = target
-                }
-            }
-            overlayTargetPoint = bestTarget
-
-            var dx = (bestTarget.x - subject.x)
-            var dy = (bestTarget.y - subject.y)
-            dx = clamp(dx, min: -1, max: 1)
-            dy = clamp(dy, min: -1, max: 1)
-            let strength = min(1, sqrt(dx * dx + dy * dy))
-            base = GuidanceOutput(dx: dx, dy: dy, strength: strength, confidence: resolved.confidence)
+            let nearest = nearestTarget(to: subject, in: targets)
+            let smoothed = weightedTarget(to: subject, in: targets, softness: 0.14)
+            let target = CGPoint(
+                x: (nearest.x * 0.72) + (smoothed.x * 0.28),
+                y: (nearest.y * 0.72) + (smoothed.y * 0.28)
+            )
+            overlayTargetPoint = target
+            let dx = target.x - subject.x
+            let dy = target.y - subject.y
+            base = tunedGuidance(
+                rawDx: dx,
+                rawDy: dy,
+                confidence: resolved.confidence,
+                gainX: 1.0,
+                gainY: 1.0,
+                deadZone: 0.024,
+                activeRange: 0.32,
+                confidenceFloor: 0.20
+            )
+            boundsMargin = 0.09
+            boundsWeight = 2.2
             boundsAnchor = subject
         case .diagonal:
             let subject = resolved.point
@@ -189,9 +289,19 @@ struct TemplateRuleEngine {
             boundsAnchor = fallbackAnchor
         }
 
-        let bounded = applyBoundsConstraint(anchor: boundsAnchor, guidance: base)
+        var bounded = applyBoundsConstraint(
+            anchor: boundsAnchor,
+            guidance: base,
+            margin: boundsMargin,
+            weight: boundsWeight
+        )
         let subjectPoint = resolved.point
-        let debugTargetPoint = CGPoint(
+        bounded = enforceDirectionConsistency(
+            guidance: bounded,
+            subject: subjectPoint,
+            target: overlayTargetPoint
+        )
+        let debugTargetPoint = overlayTargetPoint ?? CGPoint(
             x: clamp(subjectPoint.x + bounded.dx, min: 0, max: 1),
             y: clamp(subjectPoint.y + bounded.dy, min: 0, max: 1)
         )
@@ -203,6 +313,10 @@ struct TemplateRuleEngine {
             templateLabel = "symmetry"
         case .center:
             templateLabel = "center"
+        case .leadingLines:
+            templateLabel = "leading_lines"
+        case .framing:
+            templateLabel = "framing"
         case .thirds:
             templateLabel = "rule_of_thirds"
         case .goldenPoints:
@@ -270,6 +384,115 @@ struct TemplateRuleEngine {
         let dx = a.x - b.x
         let dy = a.y - b.y
         return dx * dx + dy * dy
+    }
+
+    private func nearestTarget(to subject: CGPoint, in candidates: [CGPoint]) -> CGPoint {
+        guard let first = candidates.first else {
+            return subject
+        }
+        var best = first
+        var bestDistance = squaredDistance(subject, first)
+        for candidate in candidates.dropFirst() {
+            let distance = squaredDistance(subject, candidate)
+            if distance < bestDistance {
+                bestDistance = distance
+                best = candidate
+            }
+        }
+        return best
+    }
+
+    private func weightedTarget(to subject: CGPoint, in candidates: [CGPoint], softness: CGFloat) -> CGPoint {
+        guard !candidates.isEmpty else {
+            return subject
+        }
+        let s2 = max(softness * softness, 0.0001)
+        var sumW: CGFloat = 0
+        var sumX: CGFloat = 0
+        var sumY: CGFloat = 0
+
+        for point in candidates {
+            let d2 = squaredDistance(subject, point)
+            let w = 1.0 / (d2 + s2)
+            sumW += w
+            sumX += point.x * w
+            sumY += point.y * w
+        }
+
+        guard sumW > 0 else {
+            return subject
+        }
+
+        return CGPoint(x: sumX / sumW, y: sumY / sumW)
+    }
+
+    private func tunedGuidance(
+        rawDx: CGFloat,
+        rawDy: CGFloat,
+        confidence: CGFloat,
+        gainX: CGFloat,
+        gainY: CGFloat,
+        deadZone: CGFloat,
+        activeRange: CGFloat,
+        confidenceFloor: CGFloat
+    ) -> GuidanceOutput {
+        var dx = clamp(rawDx * gainX, min: -1, max: 1)
+        var dy = clamp(rawDy * gainY, min: -1, max: 1)
+        let magnitude = sqrt(dx * dx + dy * dy)
+        let confidenceScale = confidenceRamp(confidence, floor: confidenceFloor)
+
+        if magnitude < deadZone || confidenceScale <= 0 {
+            return GuidanceOutput(dx: 0, dy: 0, strength: 0, confidence: confidence)
+        }
+
+        let t = smoothstep((magnitude - deadZone) / max(0.001, activeRange))
+        let scale = (0.42 + 0.58 * t) * confidenceScale
+        dx *= scale
+        dy *= scale
+
+        let outputMag = sqrt(dx * dx + dy * dy)
+        let strength = clamp(outputMag / max(0.001, activeRange), min: 0, max: 1)
+        return GuidanceOutput(dx: dx, dy: dy, strength: strength, confidence: confidence)
+    }
+
+    private func smoothstep(_ x: CGFloat) -> CGFloat {
+        let t = clamp(x, min: 0, max: 1)
+        return t * t * (3 - 2 * t)
+    }
+
+    private func confidenceRamp(_ confidence: CGFloat, floor: CGFloat) -> CGFloat {
+        guard confidence > floor else { return 0 }
+        let t = (confidence - floor) / max(0.001, 1 - floor)
+        return smoothstep(t)
+    }
+
+    private func enforceDirectionConsistency(
+        guidance: GuidanceOutput,
+        subject: CGPoint,
+        target: CGPoint?,
+        epsilon: CGFloat = 0.01
+    ) -> GuidanceOutput {
+        guard let target else { return guidance }
+
+        let expectedDx = target.x - subject.x
+        let expectedDy = target.y - subject.y
+        var dx = guidance.dx
+        var dy = guidance.dy
+
+        if abs(expectedDx) > epsilon, dx * expectedDx < 0 {
+            let correctedAbs = max(abs(dx), min(0.2, abs(expectedDx) * 0.6))
+            dx = correctedAbs * (expectedDx > 0 ? 1 : -1)
+        }
+
+        if abs(expectedDy) > epsilon, dy * expectedDy < 0 {
+            let correctedAbs = max(abs(dy), min(0.2, abs(expectedDy) * 0.6))
+            dy = correctedAbs * (expectedDy > 0 ? 1 : -1)
+        }
+
+        dx = clamp(dx, min: -1, max: 1)
+        dy = clamp(dy, min: -1, max: 1)
+        let strength = min(1, sqrt(dx * dx + dy * dy))
+        return GuidanceOutput(dx: dx, dy: dy, strength: strength, confidence: guidance.confidence)
     }
 
     private func closestPointInRect(_ p: CGPoint, _ rect: CGRect) -> CGPoint {

@@ -5,10 +5,10 @@ import CoreGraphics
 // 2) targetPoint: CGPoint (normalized 0..1) = template target (center/thirds/golden/zone/diagonal projection).
 // 3) guidanceVector g_template = targetPoint - subjectPoint (normalized vector in subject-motion semantics).
 // 4) stabilizer consumes g_template (not UI-inverted).
-// 5) UI mapping (subject semantics):
-//    - g_ui = g_stable
+// 5) UI mapping (camera-motion semantics):
+//    - g_ui = -g_stable
 //    - Arrow mode: dot = center + (g_ui * radiusPx), crosshair fixed at center
-//    - Arrow goes Crosshair -> Dot
+//    - Move camera toward arrow direction so the subject converges to target.
 
 struct GuidanceDebugInfo {
     var templateType: String = "nil"

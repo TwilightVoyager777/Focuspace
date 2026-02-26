@@ -71,11 +71,29 @@ struct ViewfinderView: View {
                             Color.black
                         }
 
-                        if let selectedTemplate {
-                            let subjectOffset = CGSize(
+                        let cameraMoveOffset: CGSize = {
+                            guard selectedTemplate != nil else {
+                                return .zero
+                            }
+                            let rawOffset = CGSize(
+                                width: cameraController.rawSymmetryDx,
+                                height: cameraController.rawSymmetryDy
+                            )
+                            let stableOffset = CGSize(
                                 width: cameraController.stableSymmetryDx,
                                 height: cameraController.stableSymmetryDy
                             )
+                            let subjectOffset = directionalStableOffset(
+                                raw: rawOffset,
+                                stable: stableOffset
+                            )
+                            return CGSize(
+                                width: -subjectOffset.width,
+                                height: -subjectOffset.height
+                            )
+                        }()
+
+                        if let selectedTemplate {
                             TemplateOverlayView(
                                 model: TemplateOverlayModel(
                                     templateId: selectedTemplate,
@@ -90,13 +108,13 @@ struct ViewfinderView: View {
                             switch guidanceUIMode {
                             case .moving:
                                 GuidanceLayeredDotHUDView(
-                                    guidanceOffset: subjectOffset,
+                                    guidanceOffset: cameraMoveOffset,
                                     strength: cameraController.rawSymmetryStrength,
                                     isHolding: cameraController.stableSymmetryIsHolding
                                 )
                             case .arrow:
                                 ArrowGuidanceHUDView(
-                                    guidanceOffset: subjectOffset,
+                                    guidanceOffset: cameraMoveOffset,
                                     strength: cameraController.rawSymmetryStrength,
                                     isHolding: cameraController.stableSymmetryIsHolding
                                 )
@@ -116,7 +134,12 @@ struct ViewfinderView: View {
                                 isHolding: cameraController.stableSymmetryIsHolding,
                                 subjectCurrentNormalized: cameraController.subjectCurrentNormalized,
                                 subjectTrackScore: cameraController.subjectTrackScore,
-                                subjectIsLost: cameraController.subjectIsLost
+                                subjectIsLost: cameraController.subjectIsLost,
+                                effectiveAnchorNormalized: cameraController.effectiveAnchorNormalized,
+                                userAnchorNormalized: cameraController.userSubjectAnchorNormalized,
+                                autoFocusAnchorNormalized: cameraController.currentAutoFocusAnchorNormalized,
+                                uiDx: cameraMoveOffset.width,
+                                uiDy: cameraMoveOffset.height
                             )
                             .padding(8)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -326,6 +349,22 @@ struct ViewfinderView: View {
             return "1x"
         }
         return String(format: "%.1fx", value)
+    }
+
+    private func directionalStableOffset(
+        raw: CGSize,
+        stable: CGSize,
+        epsilon: CGFloat = 0.02
+    ) -> CGSize {
+        let rawMag = sqrt(raw.width * raw.width + raw.height * raw.height)
+        let stableMag = sqrt(stable.width * stable.width + stable.height * stable.height)
+        if rawMag < epsilon {
+            return stable
+        }
+        let dirX = raw.width / rawMag
+        let dirY = raw.height / rawMag
+        let magnitude = max(stableMag, min(1, rawMag))
+        return CGSize(width: dirX * magnitude, height: dirY * magnitude)
     }
 
     // 数值夹取

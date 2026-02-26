@@ -186,9 +186,10 @@ struct GuidanceModeRow: View {
             Picker("Guidance UI", selection: $selection) {
                 Text("Moving").tag(DebugSettings.GuidanceUIMode.moving)
                 Text("Arrow").tag(DebugSettings.GuidanceUIMode.arrow)
+                Text("Scope").tag(DebugSettings.GuidanceUIMode.arrowScope)
             }
             .pickerStyle(.segmented)
-            .frame(width: 160)
+            .frame(width: 230)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

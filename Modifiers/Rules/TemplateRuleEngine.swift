@@ -10,6 +10,9 @@ enum TemplateType {
     case goldenPoints
     case diagonal
     case negativeSpace
+    case portraitHeadroom
+    case triangle
+    case layersFMB
     case other
 
     init(id: String?) {
@@ -30,6 +33,12 @@ enum TemplateType {
             self = .diagonal
         case "negative_space", "negativeSpace":
             self = .negativeSpace
+        case "portrait_headroom", "portraitHeadroom":
+            self = .portraitHeadroom
+        case "triangle":
+            self = .triangle
+        case "layers_fmb", "layersFMB":
+            self = .layersFMB
         default:
             self = .other
         }
@@ -44,6 +53,11 @@ struct TemplateComputationResult {
 }
 
 struct TemplateRuleEngine {
+    private struct NegativeSpaceLayout {
+        let target: CGPoint
+        let zone: CGRect
+    }
+
     private let symmetryEngine = SymmetryRuleEngine()
     private let centerEngine = CenterRuleEngine()
 
@@ -206,23 +220,25 @@ struct TemplateRuleEngine {
                 CGPoint(x: 1.0 / 3.0, y: 2.0 / 3.0),
                 CGPoint(x: 2.0 / 3.0, y: 2.0 / 3.0)
             ]
-            var bestTarget = targets[0]
-            var bestDistance = squaredDistance(subject, targets[0])
-            for target in targets.dropFirst() {
-                let d = squaredDistance(subject, target)
-                if d < bestDistance {
-                    bestDistance = d
-                    bestTarget = target
-                }
-            }
-            overlayTargetPoint = bestTarget
-
-            var dx = (bestTarget.x - subject.x)
-            var dy = (bestTarget.y - subject.y)
-            dx = clamp(dx, min: -1, max: 1)
-            dy = clamp(dy, min: -1, max: 1)
-            let strength = min(1, sqrt(dx * dx + dy * dy))
-            base = GuidanceOutput(dx: dx, dy: dy, strength: strength, confidence: resolved.confidence)
+            let nearest = nearestTarget(to: subject, in: targets)
+            let smoothed = weightedTarget(to: subject, in: targets, softness: 0.14)
+            let target = CGPoint(
+                x: (nearest.x * 0.78) + (smoothed.x * 0.22),
+                y: (nearest.y * 0.78) + (smoothed.y * 0.22)
+            )
+            overlayTargetPoint = target
+            base = tunedGuidance(
+                rawDx: target.x - subject.x,
+                rawDy: target.y - subject.y,
+                confidence: resolved.confidence,
+                gainX: 1.0,
+                gainY: 1.0,
+                deadZone: 0.024,
+                activeRange: 0.31,
+                confidenceFloor: 0.20
+            )
+            boundsMargin = 0.09
+            boundsWeight = 2.2
             boundsAnchor = subject
         case .goldenPoints:
             let subject = resolved.point
@@ -264,25 +280,107 @@ struct TemplateRuleEngine {
             let q2 = CGPoint(x: t2, y: 1 - t2)
             let c1 = CGPoint(x: clamp(q1.x, min: 0, max: 1), y: clamp(q1.y, min: 0, max: 1))
             let c2 = CGPoint(x: clamp(q2.x, min: 0, max: 1), y: clamp(q2.y, min: 0, max: 1))
-            let isMain = squaredDistance(subject, c1) <= squaredDistance(subject, c2)
-            let chosen = isMain ? c1 : c2
-            debugDiagonal = isMain ? .main : .anti
-            overlayTargetPoint = chosen
-
-            var dx = (chosen.x - subject.x)
-            var dy = (chosen.y - subject.y)
-            dx = clamp(dx, min: -1, max: 1)
-            dy = clamp(dy, min: -1, max: 1)
-            let strength = min(1, sqrt(dx * dx + dy * dy))
-            base = GuidanceOutput(dx: dx, dy: dy, strength: strength, confidence: resolved.confidence)
+            let mainDistance = squaredDistance(subject, c1)
+            let antiDistance = squaredDistance(subject, c2)
+            let smoothedTarget = weightedTarget(to: subject, in: [c1, c2], softness: 0.10)
+            let ambiguityThreshold: CGFloat = 0.004
+            let distanceDiff = abs(mainDistance - antiDistance)
+            let preferMain = mainDistance <= antiDistance
+            let hardTarget = preferMain ? c1 : c2
+            let target: CGPoint
+            if distanceDiff < ambiguityThreshold {
+                // Near diagonal boundary use continuous target to suppress flip jitter.
+                debugDiagonal = nil
+                target = smoothedTarget
+            } else {
+                debugDiagonal = preferMain ? .main : .anti
+                target = CGPoint(
+                    x: (hardTarget.x * 0.8) + (smoothedTarget.x * 0.2),
+                    y: (hardTarget.y * 0.8) + (smoothedTarget.y * 0.2)
+                )
+            }
+            overlayTargetPoint = target
+            base = tunedGuidance(
+                rawDx: target.x - subject.x,
+                rawDy: target.y - subject.y,
+                confidence: resolved.confidence,
+                gainX: 1.0,
+                gainY: 1.0,
+                deadZone: 0.022,
+                activeRange: 0.28,
+                confidenceFloor: 0.20
+            )
+            boundsMargin = 0.09
+            boundsWeight = 2.0
             boundsAnchor = subject
         case .negativeSpace:
             let subject = resolved.point
-            debugNegativeZone = negativeSpaceZoneRect(anchorNormalized: subject)
-            if let zone = debugNegativeZone {
-                overlayTargetPoint = closestPointInRect(subject, zone)
-            }
-            base = negativeSpaceGuidance(anchorNormalized: subject, confidence: resolved.confidence)
+            let layout = negativeSpaceLayout(anchorNormalized: subject)
+            debugNegativeZone = layout.zone
+            overlayTargetPoint = layout.target
+            base = tunedGuidance(
+                rawDx: layout.target.x - subject.x,
+                rawDy: layout.target.y - subject.y,
+                confidence: resolved.confidence,
+                gainX: 0.95,
+                gainY: 0.95,
+                deadZone: 0.026,
+                activeRange: 0.34,
+                confidenceFloor: 0.18
+            )
+            boundsMargin = 0.09
+            boundsWeight = 2.0
+            boundsAnchor = subject
+        case .portraitHeadroom:
+            let subject = resolved.point
+            let target = portraitHeadroomTarget(for: subject)
+            overlayTargetPoint = target
+            base = tunedGuidance(
+                rawDx: target.x - subject.x,
+                rawDy: target.y - subject.y,
+                confidence: resolved.confidence,
+                gainX: 0.82,
+                gainY: 1.12,
+                deadZone: 0.024,
+                activeRange: 0.30,
+                confidenceFloor: 0.20
+            )
+            boundsMargin = 0.08
+            boundsWeight = 2.2
+            boundsAnchor = subject
+        case .triangle:
+            let subject = resolved.point
+            let target = triangleTarget(for: subject)
+            overlayTargetPoint = target
+            base = tunedGuidance(
+                rawDx: target.x - subject.x,
+                rawDy: target.y - subject.y,
+                confidence: resolved.confidence,
+                gainX: 0.95,
+                gainY: 1.00,
+                deadZone: 0.024,
+                activeRange: 0.33,
+                confidenceFloor: 0.19
+            )
+            boundsMargin = 0.09
+            boundsWeight = 2.1
+            boundsAnchor = subject
+        case .layersFMB:
+            let subject = resolved.point
+            let target = layersFMBTarget(for: subject)
+            overlayTargetPoint = target
+            base = tunedGuidance(
+                rawDx: target.x - subject.x,
+                rawDy: target.y - subject.y,
+                confidence: resolved.confidence,
+                gainX: 0.86,
+                gainY: 1.08,
+                deadZone: 0.025,
+                activeRange: 0.34,
+                confidenceFloor: 0.18
+            )
+            boundsMargin = 0.08
+            boundsWeight = 2.0
             boundsAnchor = subject
         case .other:
             base = GuidanceOutput(dx: 0, dy: 0, strength: 0, confidence: 0)
@@ -325,6 +423,12 @@ struct TemplateRuleEngine {
             templateLabel = "diagonals"
         case .negativeSpace:
             templateLabel = "negative_space"
+        case .portraitHeadroom:
+            templateLabel = "portrait_headroom"
+        case .triangle:
+            templateLabel = "triangle"
+        case .layersFMB:
+            templateLabel = "layers_fmb"
         case .other:
             templateLabel = "other"
         }
@@ -502,53 +606,92 @@ struct TemplateRuleEngine {
         )
     }
 
-    private func negativeSpaceGuidance(anchorNormalized: CGPoint, confidence: CGFloat) -> GuidanceOutput {
-        let rect = negativeSpaceZoneRect(anchorNormalized: anchorNormalized)
-        let target = closestPointInRect(anchorNormalized, rect)
-        var dx = (target.x - anchorNormalized.x)
-        var dy = (target.y - anchorNormalized.y)
-        dx = clamp(dx, min: -1, max: 1)
-        dy = clamp(dy, min: -1, max: 1)
-        let strength = min(1, sqrt(dx * dx + dy * dy))
-        return GuidanceOutput(dx: dx, dy: dy, strength: strength, confidence: confidence)
-    }
-
-    private func negativeSpaceZoneRect(anchorNormalized: CGPoint) -> CGRect {
+    private func negativeSpaceLayout(anchorNormalized: CGPoint) -> NegativeSpaceLayout {
         let vx = anchorNormalized.x - 0.5
         let vy = anchorNormalized.y - 0.5
+        let absX = abs(vx)
+        let absY = abs(vy)
+        let verticalThreshold: CGFloat = 0.12
+        let useVertical = absY > (absX + verticalThreshold)
 
-        let minX: CGFloat
-        let maxX: CGFloat
-        let minY: CGFloat
-        let maxY: CGFloat
-
-        if abs(vx) >= abs(vy) {
-            if vx < 0 {
-                minX = 0.62
-                maxX = 0.85
-                minY = 0.15
-                maxY = 0.85
+        if useVertical {
+            let subjectOnTop = vy < 0
+            let target = CGPoint(
+                x: clamp((anchorNormalized.x * 0.72) + 0.14, min: 0.12, max: 0.88),
+                y: subjectOnTop ? 0.32 : 0.68
+            )
+            let zone: CGRect
+            if subjectOnTop {
+                zone = CGRect(x: 0.14, y: 0.60, width: 0.72, height: 0.30)
             } else {
-                minX = 0.15
-                maxX = 0.38
-                minY = 0.15
-                maxY = 0.85
+                zone = CGRect(x: 0.14, y: 0.10, width: 0.72, height: 0.30)
             }
+            return NegativeSpaceLayout(target: target, zone: zone)
         } else {
-            if vy < 0 {
-                minX = 0.15
-                maxX = 0.85
-                minY = 0.62
-                maxY = 0.85
+            let subjectOnLeft = vx < 0
+            let target = CGPoint(
+                x: subjectOnLeft ? 0.32 : 0.68,
+                y: clamp((anchorNormalized.y * 0.72) + 0.14, min: 0.12, max: 0.88)
+            )
+            let zone: CGRect
+            if subjectOnLeft {
+                zone = CGRect(x: 0.60, y: 0.12, width: 0.30, height: 0.76)
             } else {
-                minX = 0.15
-                maxX = 0.85
-                minY = 0.15
-                maxY = 0.38
+                zone = CGRect(x: 0.10, y: 0.12, width: 0.30, height: 0.76)
             }
+            return NegativeSpaceLayout(target: target, zone: zone)
+        }
+    }
+
+    private func portraitHeadroomTarget(for subject: CGPoint) -> CGPoint {
+        // Keep subject horizontally centered, with stronger pull to the upper-third portrait zone.
+        let desiredX: CGFloat = 0.5
+        let desiredY: CGFloat = 0.36
+        let xBlend: CGFloat = 0.88
+        let yBlend: CGFloat = 0.84
+        return CGPoint(
+            x: clamp((subject.x * (1 - xBlend)) + (desiredX * xBlend), min: 0.12, max: 0.88),
+            y: clamp((subject.y * (1 - yBlend)) + (desiredY * yBlend), min: 0.16, max: 0.70)
+        )
+    }
+
+    private func triangleTarget(for subject: CGPoint) -> CGPoint {
+        let apex = CGPoint(x: 0.50, y: 0.30)
+        let baseLeft = CGPoint(x: 0.34, y: 0.72)
+        let baseRight = CGPoint(x: 0.66, y: 0.72)
+        let candidates = [apex, baseLeft, baseRight]
+
+        let hardTarget: CGPoint = {
+            if subject.y < 0.52 {
+                return apex
+            }
+            return subject.x < 0.5 ? baseLeft : baseRight
+        }()
+
+        let softTarget = weightedTarget(to: subject, in: candidates, softness: 0.16)
+        return CGPoint(
+            x: clamp((hardTarget.x * 0.76) + (softTarget.x * 0.24), min: 0.12, max: 0.88),
+            y: clamp((hardTarget.y * 0.76) + (softTarget.y * 0.24), min: 0.16, max: 0.84)
+        )
+    }
+
+    private func layersFMBTarget(for subject: CGPoint) -> CGPoint {
+        let midBandMin: CGFloat = 0.44
+        let midBandMax: CGFloat = 0.64
+        let desiredMidY: CGFloat = 0.54
+        let bandY: CGFloat
+        if subject.y < midBandMin {
+            bandY = midBandMin
+        } else if subject.y > midBandMax {
+            bandY = midBandMax
+        } else {
+            bandY = (subject.y * 0.35) + (desiredMidY * 0.65)
         }
 
-        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        return CGPoint(
+            x: clamp((subject.x * 0.20) + 0.40, min: 0.14, max: 0.86),
+            y: clamp(bandY, min: 0.24, max: 0.78)
+        )
     }
 
     private func applyBoundsConstraint(

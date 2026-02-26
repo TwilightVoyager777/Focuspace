@@ -4,6 +4,7 @@ final class DebugSettings: ObservableObject {
     enum GuidanceUIMode {
         case moving
         case arrow
+        case arrowScope
     }
 
     @Published var showDebugHUD: Bool = false

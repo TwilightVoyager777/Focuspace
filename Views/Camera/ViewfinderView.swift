@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // 取景区域
 struct ViewfinderView: View {
@@ -20,6 +23,7 @@ struct ViewfinderView: View {
     // 点击对焦提示
     @State private var focusPoint: CGPoint = .zero
     @State private var showFocusIndicator: Bool = false
+    @State private var didFireHoldHaptic: Bool = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -117,6 +121,13 @@ struct ViewfinderView: View {
                                     guidanceOffset: cameraMoveOffset,
                                     strength: cameraController.rawSymmetryStrength,
                                     isHolding: cameraController.stableSymmetryIsHolding
+                                )
+                            case .arrowScope:
+                                ArrowGuidanceHUDView(
+                                    guidanceOffset: cameraMoveOffset,
+                                    strength: cameraController.rawSymmetryStrength,
+                                    isHolding: cameraController.stableSymmetryIsHolding,
+                                    crosshairStyle: .scope
                                 )
                             }
                         }
@@ -341,6 +352,32 @@ struct ViewfinderView: View {
                 cameraController.stopSession()
             }
         }
+        .onChange(of: cameraController.stableSymmetryIsHolding) { holding in
+            guard selectedTemplate != nil else {
+                didFireHoldHaptic = false
+                return
+            }
+            if holding {
+                guard didFireHoldHaptic == false else { return }
+                triggerHoldHaptic()
+                didFireHoldHaptic = true
+            } else {
+                didFireHoldHaptic = false
+            }
+        }
+        .onChange(of: selectedTemplate) { template in
+            if template == nil {
+                didFireHoldHaptic = false
+            }
+        }
+    }
+
+    private func triggerHoldHaptic() {
+        #if canImport(UIKit)
+        let feedback = UINotificationFeedbackGenerator()
+        feedback.prepare()
+        feedback.notificationOccurred(.success)
+        #endif
     }
 
     // 缩放文本格式化

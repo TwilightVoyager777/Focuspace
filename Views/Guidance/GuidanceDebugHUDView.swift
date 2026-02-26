@@ -30,6 +30,8 @@ struct GuidanceDebugHUDView: View {
             return "移动点"
         case .arrow:
             return "箭头"
+        case .arrowScope:
+            return "箭头(新准心)"
         }
     }
 
@@ -119,7 +121,7 @@ struct GuidanceDebugHUDView: View {
             // Text("稳定后向量 g_stable: \(fmtSize(CGSize(width: stableDx, height: stableDy)))")
             Text("UI向量 g_ui: \(fmtSize(gUi))")
             Text(xCheckText)
-            if guidanceUIMode == .arrow {
+            if guidanceUIMode == .arrow || guidanceUIMode == .arrowScope {
                 // Text("箭头起点(px): ...")
                 Text("箭头终点(px): (\(fmt(arrowEnd.x)), \(fmt(arrowEnd.y)))")
                 Text("点位偏移(px): \(fmtSize(dotOffsetPx))")

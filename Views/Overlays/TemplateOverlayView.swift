@@ -10,7 +10,7 @@ struct TemplateOverlayView: View {
             let size = geo.size
             let baseAlpha = clamp(0.15 + 0.6 * model.strength, min: 0.15, max: 0.55)
             let shouldRenderLegacyPrimitives =
-                model.targetPoint != nil || model.diagonalType != nil || model.negativeSpaceZone != nil
+                model.diagonalType != nil || model.negativeSpaceZone != nil
 
             ZStack {
                 TemplateOverlayDiagramShape(templateID: model.templateId)

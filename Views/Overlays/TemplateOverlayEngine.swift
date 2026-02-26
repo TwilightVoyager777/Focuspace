@@ -21,10 +21,6 @@ struct TemplateOverlayEngine {
             primitives.append(.line(line))
         }
 
-        if let target = model.targetPoint {
-            primitives.append(.dot(Dot(at: target, radius: 0.012, opacity: 1.0)))
-        }
-
         return primitives
     }
 }

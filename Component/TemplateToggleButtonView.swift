@@ -10,6 +10,10 @@ struct TemplateToggleButtonView: View {
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundColor(.white)
                 .frame(width: 49, height: 49)
+                .background(
+                    Circle()
+                        .fill(Color.gray.opacity(0.52))
+                )
         }
         .buttonStyle(.plain)
     }

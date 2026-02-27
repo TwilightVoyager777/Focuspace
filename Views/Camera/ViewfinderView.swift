@@ -9,6 +9,7 @@ struct ViewfinderView: View {
     @ObservedObject var cameraController: CameraSessionController
     var selectedTemplate: String?
     var usePadPortraitLayout: Bool
+    var usePadLandscapeLayout: Bool
     var guidanceUIMode: DebugSettings.GuidanceUIMode
     var showGuidanceDebugHUD: Bool
     var showAICoachDebugHUD: Bool
@@ -38,6 +39,9 @@ struct ViewfinderView: View {
                 let maxContainerWidth = proxy.size.width
                 let maxContainerHeight = proxy.size.height
                 let viewfinderWidth: CGFloat = {
+                    if usePadLandscapeLayout {
+                        return maxContainerWidth
+                    }
                     if usePadPortraitLayout {
                         // iPad portrait: keep 4:3 inside available bounds.
                         let maxWidthByHeight = maxContainerHeight * 3.0 / 4.0
@@ -46,10 +50,15 @@ struct ViewfinderView: View {
                     // iPhone path remains unchanged.
                     return maxContainerWidth
                 }()
-                let viewfinderHeight = viewfinderWidth * 4.0 / 3.0
+                let viewfinderHeight: CGFloat = {
+                    if usePadLandscapeLayout {
+                        return maxContainerHeight
+                    }
+                    return viewfinderWidth * 4.0 / 3.0
+                }()
                 let remainingHeight = max(0, maxContainerHeight - viewfinderHeight)
                 // 在居中基础上增加固定顶部间距，确保与 TopBar 有明确分离
-                let topGap = min(remainingHeight, remainingHeight * 0.5 + desiredTopGap)
+                let topGap = usePadLandscapeLayout ? 0 : min(remainingHeight, remainingHeight * 0.5 + desiredTopGap)
                 let bottomGap = max(0, remainingHeight - topGap)
 
                 VStack(spacing: 0) {
@@ -411,13 +420,19 @@ struct ViewfinderView: View {
                 .frame(width: maxContainerWidth, height: maxContainerHeight)
             }
             .onAppear {
+                UIDevice.current.beginGeneratingDeviceOrientationNotifications()
             }
             .task {
                 await cameraController.requestAuthorizationIfNeeded()
                 cameraController.configureIfNeeded()
                 cameraController.startSession()
+                cameraController.syncConnectionsToInterfaceOrientation()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+                cameraController.syncConnectionsToInterfaceOrientation()
             }
             .onDisappear {
+                UIDevice.current.endGeneratingDeviceOrientationNotifications()
                 cameraController.snapshotProvider = nil
                 cameraController.previewVisibleRectProvider = nil
                 cameraController.stopSession()

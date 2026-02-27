@@ -14,33 +14,48 @@ struct CompositionLabView: View {
     let closeLab: () -> Void
 
     private let templates: [CompositionTemplate] = sortTemplates(TemplateCatalog.load())
-    private let columns = [
-        GridItem(.adaptive(minimum: 150), spacing: 16)
-    ]
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 16) {
-                ForEach(templates) { template in
-                    NavigationLink {
-                        TemplateDetailView(template: template, selectTemplate: selectTemplate, closeLab: closeLab)
-                    } label: {
-                        TemplateCardView(template: template)
-                    }
-                    .buttonStyle(.plain)
+        GeometryReader { proxy in
+            let usePadLandscapeLayout = UIDevice.current.userInterfaceIdiom == .pad && proxy.size.width > proxy.size.height
+            let spacing: CGFloat = usePadLandscapeLayout ? 18 : 16
+            let horizontalPadding: CGFloat = usePadLandscapeLayout ? 28 : 20
+            let columns: [GridItem] = {
+                if usePadLandscapeLayout {
+                    let targetCardWidth: CGFloat = 210
+                    let rawCount = Int((proxy.size.width - horizontalPadding * 2 + spacing) / (targetCardWidth + spacing))
+                    let count = max(4, min(6, rawCount))
+                    return Array(repeating: GridItem(.flexible(), spacing: spacing), count: count)
                 }
+                return [GridItem(.adaptive(minimum: 150), spacing: spacing)]
+            }()
+
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: spacing) {
+                    ForEach(templates) { template in
+                        NavigationLink {
+                            TemplateDetailView(template: template, selectTemplate: selectTemplate, closeLab: closeLab)
+                        } label: {
+                            TemplateCardView(
+                                template: template,
+                                usePadLandscapeLayout: usePadLandscapeLayout
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, horizontalPadding)
+                .padding(.top, usePadLandscapeLayout ? 14 : 12)
+                .padding(.bottom, usePadLandscapeLayout ? 30 : 24)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 24)
-        }
-        .background(Color.black.ignoresSafeArea())
-        .navigationTitle("Composition Lab")
-        .navigationBarTitleDisplayMode(.large)
-        .onAppear {
-            #if DEBUG
-            validateAssets(for: templates)
-            #endif
+            .background(Color.black.ignoresSafeArea())
+            .navigationTitle("Composition Lab")
+            .navigationBarTitleDisplayMode(usePadLandscapeLayout ? .inline : .large)
+            .onAppear {
+                #if DEBUG
+                validateAssets(for: templates)
+                #endif
+            }
         }
     }
 
@@ -57,34 +72,38 @@ struct CompositionLabView: View {
 
 struct TemplateCardView: View {
     let template: CompositionTemplate
+    var usePadLandscapeLayout: Bool = false
 
     private var resolvedExamples: [String] {
         TemplateCatalog.resolvedExamples(templateID: template.id, explicit: template.examples)
     }
 
     var body: some View {
+        let tileCorner: CGFloat = usePadLandscapeLayout ? 14 : 12
+        let cardCorner: CGFloat = usePadLandscapeLayout ? 16 : 14
+
         VStack(alignment: .leading, spacing: 10) {
             ExampleTileView(
                 assetName: resolvedExamples.first,
                 fallbackLabel: template.name,
-                cornerRadius: 12,
+                cornerRadius: tileCorner,
                 aspect: 4.0 / 3.0
             )
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(template.name)
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: usePadLandscapeLayout ? 17 : 14, weight: .bold))
                     .foregroundColor(.white)
 
                 Text(template.subtitle)
-                    .font(.system(size: 12, weight: .regular))
+                    .font(.system(size: usePadLandscapeLayout ? 14 : 12, weight: .regular))
                     .foregroundColor(.white.opacity(0.6))
-                    .lineLimit(1)
+                    .lineLimit(usePadLandscapeLayout ? 2 : 1)
             }
         }
-        .padding(12)
+        .padding(usePadLandscapeLayout ? 14 : 12)
         .background(Color(white: 0.07))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: cardCorner, style: .continuous))
         .shadow(color: Color.black.opacity(0.4), radius: 8, x: 0, y: 4)
     }
 }
@@ -98,65 +117,46 @@ struct TemplateDetailView: View {
     @State private var selectedAsset: SelectedAsset? = nil
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                heroSection
+        GeometryReader { proxy in
+            let usePadLandscapeLayout = UIDevice.current.userInterfaceIdiom == .pad && proxy.size.width > proxy.size.height
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Examples")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(.white)
+            ScrollView {
+                if usePadLandscapeLayout {
+                    let horizontalPadding: CGFloat = 28
+                    let leftColumnWidth = min(420, max(320, proxy.size.width * 0.36))
+                    let rightContentWidth = max(260, proxy.size.width - horizontalPadding * 2 - leftColumnWidth - 24)
 
-                    let resolvedExamples = TemplateCatalog.resolvedExamples(
-                        templateID: template.id,
-                        explicit: template.examples
-                    )
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHStack(spacing: 12) {
-                            ForEach(resolvedExamples, id: \.self) { assetName in
-                                ExampleTileView(
-                                    assetName: assetName,
-                                    fallbackLabel: assetName,
-                                    cornerRadius: 8,
-                                    aspect: 4.0 / 3.0
-                                )
-                                .frame(height: 150)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    let feedback = UIImpactFeedbackGenerator(style: .light)
-                                    feedback.impactOccurred()
-                                    selectedAsset = SelectedAsset(id: assetName)
-                                }
-                            }
+                    HStack(alignment: .top, spacing: 24) {
+                        VStack(alignment: .leading, spacing: 22) {
+                            heroSection(usePadLandscapeLayout: true)
+                            howToUseSection(usePadLandscapeLayout: true)
                         }
-                        .padding(.horizontal, 2)
-                    }
-                }
+                        .frame(width: leftColumnWidth, alignment: .topLeading)
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("How To Use")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(.white)
-
-                    ForEach(bullets(for: template.id), id: \.self) { bullet in
-                        HStack(alignment: .top, spacing: 8) {
-                            Text("•")
-                                .foregroundColor(.white.opacity(0.85))
-                            Text(bullet)
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(.white.opacity(0.75))
-                        }
+                        examplesSection(
+                            usePadLandscapeLayout: true,
+                            maxWidth: rightContentWidth
+                        )
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
+                    .padding(.horizontal, horizontalPadding)
+                    .padding(.top, 14)
+                    .padding(.bottom, 32)
+                } else {
+                    VStack(alignment: .leading, spacing: 24) {
+                        heroSection(usePadLandscapeLayout: false)
+                        examplesSection(usePadLandscapeLayout: false, maxWidth: proxy.size.width - 44)
+                        howToUseSection(usePadLandscapeLayout: false)
+                    }
+                    .padding(.horizontal, 22)
+                    .padding(.top, 12)
+                    .padding(.bottom, 32)
                 }
             }
-            .padding(.horizontal, 22)
-            .padding(.top, 12)
-            .padding(.bottom, 32)
+            .background(Color.black.ignoresSafeArea())
+            .navigationTitle("Composition Lab")
+            .navigationBarTitleDisplayMode(usePadLandscapeLayout ? .inline : .large)
         }
-        .background(Color.black.ignoresSafeArea())
-        .navigationTitle("Composition Lab")
-        .navigationBarTitleDisplayMode(.large)
         .fullScreenCover(item: $selectedAsset) { asset in
             ImageLightboxView(assetName: asset.id) {
                 selectedAsset = nil
@@ -164,14 +164,21 @@ struct TemplateDetailView: View {
         }
     }
 
-    private var heroSection: some View {
+    private var resolvedExamples: [String] {
+        TemplateCatalog.resolvedExamples(
+            templateID: template.id,
+            explicit: template.examples
+        )
+    }
+
+    private func heroSection(usePadLandscapeLayout: Bool) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(template.name)
-                .font(.system(size: 26, weight: .bold))
+                .font(.system(size: usePadLandscapeLayout ? 32 : 26, weight: .bold))
                 .foregroundColor(.white)
 
             Text(template.philosophy)
-                .font(.system(size: 14, weight: .regular))
+                .font(.system(size: usePadLandscapeLayout ? 17 : 14, weight: .regular))
                 .foregroundColor(.white.opacity(0.7))
 
             ZStack {
@@ -184,14 +191,14 @@ struct TemplateDetailView: View {
                     .stroke(Color.white.opacity(0.8), lineWidth: 1.2)
                     .padding(24)
             }
-            .frame(height: 180)
+            .frame(height: usePadLandscapeLayout ? 210 : 180)
 
             Button {
                 selectTemplate(template.id)
                 closeLab()
             } label: {
                 Text("Start Shooting")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: usePadLandscapeLayout ? 17 : 14, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -201,6 +208,81 @@ struct TemplateDetailView: View {
                     )
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    private func examplesSection(usePadLandscapeLayout: Bool, maxWidth: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Examples")
+                .font(.system(size: usePadLandscapeLayout ? 16 : 14, weight: .bold))
+                .foregroundColor(.white)
+
+            if usePadLandscapeLayout {
+                let spacing: CGFloat = 12
+                let cellWidth = max(130, min(260, (maxWidth - spacing) / 2))
+                let columns = [
+                    GridItem(.fixed(cellWidth), spacing: spacing),
+                    GridItem(.fixed(cellWidth), spacing: spacing)
+                ]
+
+                LazyVGrid(columns: columns, spacing: spacing) {
+                    ForEach(resolvedExamples, id: \.self) { assetName in
+                        ExampleTileView(
+                            assetName: assetName,
+                            fallbackLabel: assetName,
+                            cornerRadius: 10,
+                            aspect: 4.0 / 3.0
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            let feedback = UIImpactFeedbackGenerator(style: .light)
+                            feedback.impactOccurred()
+                            selectedAsset = SelectedAsset(id: assetName)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 12) {
+                        ForEach(resolvedExamples, id: \.self) { assetName in
+                            ExampleTileView(
+                                assetName: assetName,
+                                fallbackLabel: assetName,
+                                cornerRadius: 8,
+                                aspect: 4.0 / 3.0
+                            )
+                            .frame(height: 150)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                let feedback = UIImpactFeedbackGenerator(style: .light)
+                                feedback.impactOccurred()
+                                selectedAsset = SelectedAsset(id: assetName)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func howToUseSection(usePadLandscapeLayout: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("How To Use")
+                .font(.system(size: usePadLandscapeLayout ? 16 : 14, weight: .bold))
+                .foregroundColor(.white)
+
+            ForEach(bullets(for: template.id), id: \.self) { bullet in
+                HStack(alignment: .top, spacing: 8) {
+                    Text("•")
+                        .foregroundColor(.white.opacity(0.85))
+                    Text(bullet)
+                        .font(.system(size: usePadLandscapeLayout ? 15 : 13, weight: .regular))
+                        .foregroundColor(.white.opacity(0.75))
+                }
+            }
         }
     }
 

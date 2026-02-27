@@ -3,6 +3,7 @@ import SwiftUI
 struct TemplateRowView: View {
     @Binding var selectedTemplateID: String
     let highlightedTemplateID: String?
+    var useLandscapeSidebarLayout: Bool = false
     let onSelect: (TemplateItem) -> Void
 
     private let templates: [CompositionTemplate] = sortTemplates(TemplateCatalog.load())
@@ -22,19 +23,38 @@ struct TemplateRowView: View {
     }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 16) {
-                ForEach(items) { item in
-                    TemplateRowCardView(
-                        item: item,
-                        isSelected: item.id == highlightedTemplateID,
-                        onSelect: onSelect
-                    )
+        Group {
+            if useLandscapeSidebarLayout {
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: 10) {
+                        ForEach(items) { item in
+                            TemplateRowCardView(
+                                item: item,
+                                isSelected: item.id == highlightedTemplateID,
+                                useLandscapeSidebarLayout: true,
+                                onSelect: onSelect
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 4)
+                }
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 16) {
+                        ForEach(items) { item in
+                            TemplateRowCardView(
+                                item: item,
+                                isSelected: item.id == highlightedTemplateID,
+                                onSelect: onSelect
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
         }
-        .background(Color.black.allowsHitTesting(false))
+        .background((useLandscapeSidebarLayout ? Color.clear : Color.black).allowsHitTesting(false))
     }
 }

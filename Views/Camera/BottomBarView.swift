@@ -11,6 +11,7 @@ struct BottomBarView: View {
     let cameraController: CameraSessionController
     let latestThumbnail: UIImage?
     let usePadPortraitLayout: Bool
+    var useLandscapeSidebarLayout: Bool = false
     @Binding var selectedTemplate: String?
 
     @State private var bottomPanel: BottomPanel = .tools
@@ -63,95 +64,192 @@ struct BottomBarView: View {
     }
 
     var body: some View {
-        let barBackground = usePadPortraitLayout ? Color.clear : Color.black
+        let barBackground: Color = {
+            if useLandscapeSidebarLayout {
+                return Color.clear
+            }
+            return usePadPortraitLayout ? Color.clear : Color.black
+        }()
 
-        VStack(spacing: rowSpacing) {
-            // 工具条（可横向滚动）
-            ZStack {
-                BottomC1ToolsRowView(
-                    cameraController: cameraController,
-                    isAdjusting: $isToolAdjusting
-                )
-                .offset(y: toolsRowOffsetY)
-                .opacity(bottomPanel == .tools ? 1 : 0)
-                .offset(y: bottomPanel == .tools ? 0 : -10)
-                .allowsHitTesting(bottomPanel == .tools)
+        Group {
+            if useLandscapeSidebarLayout {
+                let listColumnWidth = clamp(height * 0.15, min: 92, max: 126)
+                let controlColumnWidth = clamp(height * 0.15, min: 86, max: 114)
 
-                TemplateRowView(
-                    selectedTemplateID: $selectedTemplateID,
-                    highlightedTemplateID: pickerHighlightedTemplateID,
-                    onSelect: { template in
-                        let tappedID = template.id
-                        guard cameraController.isTemplateSupported(tappedID) else {
-                            cameraController.notifyUnsupportedTemplateSelection(tappedID)
-                            return
-                        }
-                        if selectedTemplate == tappedID {
-                            selectedTemplateID = ""
-                            selectedTemplate = nil
+                HStack(spacing: 0) {
+                    ZStack {
+                        BottomC1ToolsRowView(
+                            cameraController: cameraController,
+                            isAdjusting: $isToolAdjusting,
+                            useLandscapeSidebarLayout: true
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .opacity(bottomPanel == .tools ? 1 : 0)
+                        .allowsHitTesting(bottomPanel == .tools)
+
+                        TemplateRowView(
+                            selectedTemplateID: $selectedTemplateID,
+                            highlightedTemplateID: pickerHighlightedTemplateID,
+                            useLandscapeSidebarLayout: true,
+                            onSelect: { template in
+                                let tappedID = template.id
+                                guard cameraController.isTemplateSupported(tappedID) else {
+                                    cameraController.notifyUnsupportedTemplateSelection(tappedID)
+                                    return
+                                }
+                                if selectedTemplate == tappedID {
+                                    selectedTemplateID = ""
+                                    selectedTemplate = nil
+                                    pickerHighlightedTemplateID = nil
+                                    cameraController.setSelectedTemplate(nil)
+                                } else {
+                                    selectedTemplateID = tappedID
+                                    selectedTemplate = tappedID
+                                    pickerHighlightedTemplateID = tappedID
+                                    cameraController.setSelectedTemplate(tappedID)
+                                }
+                            }
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .opacity(bottomPanel == .templates ? 1 : 0)
+                        .allowsHitTesting(bottomPanel == .templates)
+                    }
+                    .onChange(of: bottomPanel) { _, newValue in
+                        if newValue == .templates {
+                            isToolAdjusting = false
                             pickerHighlightedTemplateID = nil
-                            cameraController.setSelectedTemplate(nil)
-                        } else {
-                            selectedTemplateID = tappedID
-                            selectedTemplate = tappedID
-                            pickerHighlightedTemplateID = tappedID
-                            cameraController.setSelectedTemplate(tappedID)
                         }
                     }
-                )
-                .frame(height: topRowHeight)
-                .clipped()
-                .opacity(bottomPanel == .templates ? 1 : 0)
-                .offset(y: bottomPanel == .templates ? 8 : 10)
-                .allowsHitTesting(bottomPanel == .templates)
-            }
-            .onChange(of: bottomPanel) { _, newValue in
-                if newValue == .templates {
-                    isToolAdjusting = false
-                    pickerHighlightedTemplateID = nil
-                }
-            }
-            .frame(height: topRowHeight)
-            .animation(slideAnimation, value: bottomPanel)
+                    .frame(width: listColumnWidth)
+                    .frame(maxHeight: .infinity)
+                    .animation(slideAnimation, value: bottomPanel)
 
-            // 下方控制行：缩略图 + 快门 + 切换镜头
-            BottomControlsView(
-                cameraController: cameraController,
-                latestThumbnail: latestThumbnail,
-                usePadPortraitLayout: usePadPortraitLayout,
-                onToggleBottomPanel: {
-                    if bottomPanel == .tools {
-                        pickerHighlightedTemplateID = nil
-                    }
-                    withAnimation(slideAnimation) {
-                        bottomPanel = bottomPanel == .templates ? .tools : .templates
-                    }
-                },
-                onSmartCompose: {
-                    cameraController.triggerSmartComposeRecommendation { recommendedTemplateID in
-                        guard let recommendedTemplateID else { return }
-                        let canonical = TemplateType.canonicalID(for: recommendedTemplateID) ?? recommendedTemplateID
-                        guard cameraController.isTemplateSupported(canonical) else {
-                            cameraController.notifyUnsupportedTemplateSelection(canonical)
-                            return
+                    BottomControlsView(
+                        cameraController: cameraController,
+                        latestThumbnail: latestThumbnail,
+                        usePadPortraitLayout: false,
+                        useLandscapeSidebarLayout: true,
+                        onToggleBottomPanel: {
+                            if bottomPanel == .tools {
+                                pickerHighlightedTemplateID = nil
+                            }
+                            withAnimation(slideAnimation) {
+                                bottomPanel = bottomPanel == .templates ? .tools : .templates
+                            }
+                        },
+                        onSmartCompose: {
+                            cameraController.triggerSmartComposeRecommendation { recommendedTemplateID in
+                                guard let recommendedTemplateID else { return }
+                                let canonical = TemplateType.canonicalID(for: recommendedTemplateID) ?? recommendedTemplateID
+                                guard cameraController.isTemplateSupported(canonical) else {
+                                    cameraController.notifyUnsupportedTemplateSelection(canonical)
+                                    return
+                                }
+                                selectedTemplateID = canonical
+                                selectedTemplate = canonical
+                                pickerHighlightedTemplateID = canonical
+                                cameraController.setSelectedTemplate(canonical)
+                            }
                         }
-                        selectedTemplateID = canonical
-                        selectedTemplate = canonical
-                        pickerHighlightedTemplateID = canonical
-                        cameraController.setSelectedTemplate(canonical)
-                    }
+                    )
+                    .frame(width: controlColumnWidth)
+                    .frame(maxHeight: .infinity)
                 }
-            )
-            .frame(height: controlsHeight)
-            .offset(y: bottomControlsOffsetY)
-            .animation(slideAnimation, value: bottomPanel)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 12)
+                .background(barBackground)
+                .frame(height: height)
+                .frame(maxWidth: .infinity)
+            } else {
+                VStack(spacing: rowSpacing) {
+                    // 工具条（可横向滚动）
+                    ZStack {
+                        BottomC1ToolsRowView(
+                            cameraController: cameraController,
+                            isAdjusting: $isToolAdjusting
+                        )
+                        .offset(y: toolsRowOffsetY)
+                        .opacity(bottomPanel == .tools ? 1 : 0)
+                        .offset(y: bottomPanel == .tools ? 0 : -10)
+                        .allowsHitTesting(bottomPanel == .tools)
+
+                        TemplateRowView(
+                            selectedTemplateID: $selectedTemplateID,
+                            highlightedTemplateID: pickerHighlightedTemplateID,
+                            onSelect: { template in
+                                let tappedID = template.id
+                                guard cameraController.isTemplateSupported(tappedID) else {
+                                    cameraController.notifyUnsupportedTemplateSelection(tappedID)
+                                    return
+                                }
+                                if selectedTemplate == tappedID {
+                                    selectedTemplateID = ""
+                                    selectedTemplate = nil
+                                    pickerHighlightedTemplateID = nil
+                                    cameraController.setSelectedTemplate(nil)
+                                } else {
+                                    selectedTemplateID = tappedID
+                                    selectedTemplate = tappedID
+                                    pickerHighlightedTemplateID = tappedID
+                                    cameraController.setSelectedTemplate(tappedID)
+                                }
+                            }
+                        )
+                        .frame(height: topRowHeight)
+                        .clipped()
+                        .opacity(bottomPanel == .templates ? 1 : 0)
+                        .offset(y: bottomPanel == .templates ? 8 : 10)
+                        .allowsHitTesting(bottomPanel == .templates)
+                    }
+                    .onChange(of: bottomPanel) { _, newValue in
+                        if newValue == .templates {
+                            isToolAdjusting = false
+                            pickerHighlightedTemplateID = nil
+                        }
+                    }
+                    .frame(height: topRowHeight)
+                    .animation(slideAnimation, value: bottomPanel)
+
+                    // 下方控制行：缩略图 + 快门 + 切换镜头
+                    BottomControlsView(
+                        cameraController: cameraController,
+                        latestThumbnail: latestThumbnail,
+                        usePadPortraitLayout: usePadPortraitLayout,
+                        onToggleBottomPanel: {
+                            if bottomPanel == .tools {
+                                pickerHighlightedTemplateID = nil
+                            }
+                            withAnimation(slideAnimation) {
+                                bottomPanel = bottomPanel == .templates ? .tools : .templates
+                            }
+                        },
+                        onSmartCompose: {
+                            cameraController.triggerSmartComposeRecommendation { recommendedTemplateID in
+                                guard let recommendedTemplateID else { return }
+                                let canonical = TemplateType.canonicalID(for: recommendedTemplateID) ?? recommendedTemplateID
+                                guard cameraController.isTemplateSupported(canonical) else {
+                                    cameraController.notifyUnsupportedTemplateSelection(canonical)
+                                    return
+                                }
+                                selectedTemplateID = canonical
+                                selectedTemplate = canonical
+                                pickerHighlightedTemplateID = canonical
+                                cameraController.setSelectedTemplate(canonical)
+                            }
+                        }
+                    )
+                    .frame(height: controlsHeight)
+                    .offset(y: bottomControlsOffsetY)
+                    .animation(slideAnimation, value: bottomPanel)
+                }
+                .padding(.horizontal, usePadPortraitLayout ? 18 : 16)
+                .padding(.top, verticalPadding)
+                .padding(.bottom, verticalPadding)
+                .background(barBackground)
+                .frame(height: height)
+                .frame(maxWidth: .infinity)
+            }
         }
-        .padding(.horizontal, usePadPortraitLayout ? 18 : 16)
-        .padding(.top, verticalPadding)
-        .padding(.bottom, verticalPadding)
-        .background(barBackground)
-        .frame(height: height)
-        .frame(maxWidth: .infinity)
     }
 
     private func clamp(_ value: CGFloat, min: CGFloat, max: CGFloat) -> CGFloat {

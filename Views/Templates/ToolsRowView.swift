@@ -5,6 +5,7 @@ import QuartzCore
 struct BottomC1ToolsRowView: View {
     @ObservedObject var cameraController: CameraSessionController
     @Binding var isAdjusting: Bool
+    var useLandscapeSidebarLayout: Bool = false
 
     enum ActiveTool {
         case none
@@ -97,9 +98,10 @@ struct BottomC1ToolsRowView: View {
                     },
                     onDone: {
                         activeTool = .none
-                    }
+                    },
+                    useVerticalLayout: useLandscapeSidebarLayout
                 )
-                .offset(y: -8)
+                .offset(y: useLandscapeSidebarLayout ? 0 : -8)
                 .onDisappear {
                     isAdjusting = false
                 }
@@ -126,22 +128,44 @@ struct BottomC1ToolsRowView: View {
     }
 
     private var toolsRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 16) {
-                ForEach(items) { item in
-                    ToolButtonView(
-                        title: item.title,
-                        systemName: item.systemName,
-                        isSelected: isItemSelected(item),
-                        isEnabled: item.isEnabled,
-                        action: {
-                            handleTap(for: item.title)
+        Group {
+            if useLandscapeSidebarLayout {
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: 8) {
+                        ForEach(items) { item in
+                            ToolButtonView(
+                                title: item.title,
+                                systemName: item.systemName,
+                                isSelected: isItemSelected(item),
+                                isEnabled: item.isEnabled,
+                                useLandscapeSidebarLayout: true,
+                                action: {
+                                    handleTap(for: item.title)
+                                }
+                            )
                         }
-                    )
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 4)
+                }
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 16) {
+                        ForEach(items) { item in
+                            ToolButtonView(
+                                title: item.title,
+                                systemName: item.systemName,
+                                isSelected: isItemSelected(item),
+                                isEnabled: item.isEnabled,
+                                action: {
+                                    handleTap(for: item.title)
+                                }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 4)
                 }
             }
-            .padding(.horizontal, 4)
-
         }
     }
 

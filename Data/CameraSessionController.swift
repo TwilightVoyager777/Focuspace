@@ -1858,7 +1858,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
     private func configureMovieOutputConnection() {
         guard let connection = movieOutput.connection(with: .video) else { return }
-        applyPortraitRotation(to: connection)
+        applyInterfaceRotation(to: connection)
         if connection.isVideoStabilizationSupported {
             connection.preferredVideoStabilizationMode = .auto
         }
@@ -1870,7 +1870,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
     private func configureVideoDataOutputConnection() {
         guard let connection = videoDataOutput.connection(with: .video) else { return }
-        applyPortraitRotation(to: connection)
+        applyInterfaceRotation(to: connection)
         if connection.isVideoMirroringSupported {
             connection.automaticallyAdjustsVideoMirroring = false
             connection.isVideoMirrored = (currentPosition == .front)
@@ -1879,7 +1879,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
     private func configurePhotoOutputConnection() {
         guard let connection = photoOutput.connection(with: .video) else { return }
-        applyPortraitRotation(to: connection)
+        applyInterfaceRotation(to: connection)
         if connection.isVideoMirroringSupported {
             connection.automaticallyAdjustsVideoMirroring = false
             connection.isVideoMirrored = (currentPosition == .front)
@@ -1888,21 +1888,21 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
     private func applyVideoConnectionsForCurrentState(position: AVCaptureDevice.Position) {
         if let connection = movieOutput.connection(with: .video) {
-            applyPortraitRotation(to: connection)
+            applyInterfaceRotation(to: connection)
             if connection.isVideoMirroringSupported {
                 connection.automaticallyAdjustsVideoMirroring = false
                 connection.isVideoMirrored = (position == .front)
             }
         }
         if let connection = photoOutput.connection(with: .video) {
-            applyPortraitRotation(to: connection)
+            applyInterfaceRotation(to: connection)
             if connection.isVideoMirroringSupported {
                 connection.automaticallyAdjustsVideoMirroring = false
                 connection.isVideoMirrored = (position == .front)
             }
         }
         if let connection = videoDataOutput.connection(with: .video) {
-            applyPortraitRotation(to: connection)
+            applyInterfaceRotation(to: connection)
             if connection.isVideoMirroringSupported {
                 connection.automaticallyAdjustsVideoMirroring = false
                 connection.isVideoMirrored = (position == .front)
@@ -1910,10 +1910,60 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         }
     }
 
-    private func applyPortraitRotation(to connection: AVCaptureConnection) {
-        let portraitAngle: CGFloat = 90
-        if connection.isVideoRotationAngleSupported(portraitAngle) {
-            connection.videoRotationAngle = portraitAngle
+    private func applyInterfaceRotation(to connection: AVCaptureConnection) {
+        let angle = currentInterfaceVideoRotationAngle()
+        if connection.isVideoRotationAngleSupported(angle) {
+            connection.videoRotationAngle = angle
+        }
+    }
+
+    private func currentInterfaceVideoRotationAngle() -> CGFloat {
+        let deviceOrientation = UIDevice.current.orientation
+        switch deviceOrientation {
+        case .landscapeLeft:
+            return 0
+        case .landscapeRight:
+            return 180
+        case .portraitUpsideDown:
+            return 270
+        default:
+            break
+        }
+
+        let interfaceOrientation = readCurrentInterfaceOrientation()
+        switch interfaceOrientation {
+        case .landscapeRight:
+            return 0
+        case .landscapeLeft:
+            return 180
+        case .portraitUpsideDown:
+            return 270
+        default:
+            return 90
+        }
+    }
+
+    private func readCurrentInterfaceOrientation() -> UIInterfaceOrientation {
+        let readOrientation = { () -> UIInterfaceOrientation in
+            UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .first(where: { $0.activationState == .foregroundActive })?
+                .interfaceOrientation ?? .portrait
+        }
+        if Thread.isMainThread {
+            return readOrientation()
+        }
+        return DispatchQueue.main.sync {
+            readOrientation()
+        }
+    }
+
+    func syncConnectionsToInterfaceOrientation() {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            self.configureMovieOutputConnection()
+            self.configurePhotoOutputConnection()
+            self.configureVideoDataOutputConnection()
         }
     }
 

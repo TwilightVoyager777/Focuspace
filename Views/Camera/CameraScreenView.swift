@@ -8,6 +8,7 @@ struct CameraScreenView: View {
     @StateObject private var cameraController: CameraSessionController
     @State private var selectedTemplate: String? = nil
     @EnvironmentObject private var debugSettings: DebugSettings
+    private let useImmersiveSystemChrome: Bool = UIDevice.current.userInterfaceIdiom == .pad
 
     init() {
         _cameraController = StateObject(wrappedValue: CameraSessionController(library: LocalMediaLibrary.shared))
@@ -20,6 +21,7 @@ struct CameraScreenView: View {
                 let screenHeight = proxy.size.height
                 let isPadLikeWidth = screenWidth >= 700
                 let usePadPortraitLayout = isPadLikeWidth && screenHeight > screenWidth
+                let usePadLandscapeLayout = isPadLikeWidth && screenWidth > screenHeight
                 Group {
                     if usePadPortraitLayout {
                         // iPad portrait: full-screen viewfinder with overlay controls, close to native Camera layout.
@@ -31,6 +33,7 @@ struct CameraScreenView: View {
                                 cameraController: cameraController,
                                 selectedTemplate: selectedTemplate,
                                 usePadPortraitLayout: true,
+                                usePadLandscapeLayout: false,
                                 guidanceUIMode: debugSettings.guidanceUIMode,
                                 showGuidanceDebugHUD: debugSettings.showGuidanceDebugHUD,
                                 showAICoachDebugHUD: debugSettings.showAICoachDebugHUD
@@ -55,6 +58,48 @@ struct CameraScreenView: View {
                             }
                             .padding(.top, proxy.safeAreaInsets.top)
                             .padding(.bottom, max(proxy.safeAreaInsets.bottom, 8))
+                        }
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                    } else if usePadLandscapeLayout {
+                        // iPad landscape: full-screen viewfinder with left/right side rails overlay.
+                        let leftPanelWidth = clamp(screenWidth * 0.13, min: 120, max: 176)
+                        let rightPanelWidth = clamp(screenWidth * 0.24, min: 210, max: 300)
+                        
+                        ZStack {
+                            ViewfinderView(
+                                cameraController: cameraController,
+                                selectedTemplate: selectedTemplate,
+                                usePadPortraitLayout: false,
+                                usePadLandscapeLayout: true,
+                                guidanceUIMode: debugSettings.guidanceUIMode,
+                                showGuidanceDebugHUD: debugSettings.showGuidanceDebugHUD,
+                                showAICoachDebugHUD: debugSettings.showAICoachDebugHUD
+                            )
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+
+                            HStack(spacing: 0) {
+                                TopBarView(
+                                    height: screenHeight,
+                                    cameraController: cameraController,
+                                    usePadPortraitLayout: false,
+                                    useLandscapeSidebarLayout: true,
+                                    onSelectTemplate: { selectedTemplate = $0 }
+                                )
+                                .frame(width: leftPanelWidth, height: screenHeight)
+
+                                Spacer(minLength: 0)
+
+                                BottomBarView(
+                                    height: screenHeight,
+                                    cameraController: cameraController,
+                                    latestThumbnail: library.latestThumbnail,
+                                    usePadPortraitLayout: false,
+                                    useLandscapeSidebarLayout: true,
+                                    selectedTemplate: $selectedTemplate
+                                )
+                                .frame(width: rightPanelWidth, height: screenHeight)
+                            }
+                            .frame(width: proxy.size.width, height: proxy.size.height)
                         }
                         .frame(width: proxy.size.width, height: proxy.size.height)
                     } else {
@@ -83,6 +128,7 @@ struct CameraScreenView: View {
                                 cameraController: cameraController,
                                 selectedTemplate: selectedTemplate,
                                 usePadPortraitLayout: false,
+                                usePadLandscapeLayout: false,
                                 guidanceUIMode: debugSettings.guidanceUIMode,
                                 showGuidanceDebugHUD: debugSettings.showGuidanceDebugHUD,
                                 showAICoachDebugHUD: debugSettings.showAICoachDebugHUD
@@ -112,14 +158,41 @@ struct CameraScreenView: View {
                     cameraController.setSelectedTemplate(canonical)
                 }
             }
-            // 使用安全区，但不额外忽略，避免内容进入刘海/下巴区域
-            .ignoresSafeArea(.container, edges: [])
+            .ignoresSafeArea(.container, edges: useImmersiveSystemChrome ? .all : [])
         }
+        .modifier(CameraSystemChromeModifier(hidden: useImmersiveSystemChrome))
         .environmentObject(library)
     }
 
     // 数值夹取，避免布局失控
     private func clamp(_ value: CGFloat, min: CGFloat, max: CGFloat) -> CGFloat {
         Swift.max(min, Swift.min(value, max))
+    }
+}
+
+private struct CameraSystemChromeModifier: ViewModifier {
+    let hidden: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if hidden {
+            if #available(iOS 16.0, *) {
+                content
+                    .statusBar(hidden: true)
+                    .persistentSystemOverlays(.hidden)
+            } else {
+                content
+                    .statusBar(hidden: true)
+            }
+        } else {
+            if #available(iOS 16.0, *) {
+                content
+                    .statusBar(hidden: false)
+                    .persistentSystemOverlays(.visible)
+            } else {
+                content
+                    .statusBar(hidden: false)
+            }
+        }
     }
 }

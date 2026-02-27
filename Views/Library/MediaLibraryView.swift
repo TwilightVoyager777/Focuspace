@@ -15,36 +15,45 @@ struct MediaLibraryView: View {
     @State private var toastMessage: String? = nil
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+        GeometryReader { proxy in
+            let usePadLandscapeLayout = UIDevice.current.userInterfaceIdiom == .pad && proxy.size.width > proxy.size.height
+            let horizontalPadding: CGFloat = usePadLandscapeLayout ? 28 : 16
+            let verticalSpacing: CGFloat = usePadLandscapeLayout ? 14 : 16
 
-            VStack(spacing: 16) {
-                topBar
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-                if showBanner {
-                    warningBanner
+                VStack(spacing: verticalSpacing) {
+                    topBar(usePadLandscapeLayout: usePadLandscapeLayout)
+
+                    if showBanner {
+                        warningBanner(usePadLandscapeLayout: usePadLandscapeLayout)
+                    }
+
+                    if isSelecting && selectedTab == .materials {
+                        selectAllPill
+                    }
+
+                    contentArea(
+                        containerWidth: proxy.size.width - horizontalPadding * 2,
+                        usePadLandscapeLayout: usePadLandscapeLayout
+                    )
+
+                    if !isSelecting {
+                        bottomTabs(usePadLandscapeLayout: usePadLandscapeLayout)
+                    }
+                }
+                .padding(.horizontal, horizontalPadding)
+                .padding(.top, usePadLandscapeLayout ? 12 : 8)
+                .padding(.bottom, usePadLandscapeLayout ? 20 : 16)
+
+                if isSelecting {
+                    selectionActionBar
                 }
 
-                if isSelecting && selectedTab == .materials {
-                    selectAllPill
+                if let toastMessage {
+                    toastView(message: toastMessage)
                 }
-
-                contentArea
-
-                if !isSelecting {
-                    bottomTabs
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 16)
-
-            if isSelecting {
-                selectionActionBar
-            }
-
-            if let toastMessage {
-                toastView(message: toastMessage)
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -59,7 +68,7 @@ struct MediaLibraryView: View {
         }
     }
 
-    private var topBar: some View {
+    private func topBar(usePadLandscapeLayout: Bool) -> some View {
         HStack {
             Button(action: { dismiss() }) {
                 Image(systemName: "chevron.down")
@@ -70,12 +79,12 @@ struct MediaLibraryView: View {
             Spacer()
 
             Text("Media Library")
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: usePadLandscapeLayout ? 18 : 17, weight: .semibold))
                 .foregroundColor(.white)
 
             Spacer()
 
-            HStack(spacing: 12) {
+            HStack(spacing: usePadLandscapeLayout ? 14 : 12) {
                 Button(action: {}) {
                     Image(systemName: "line.3.horizontal.decrease.circle")
                         .font(.system(size: 18, weight: .semibold))
@@ -91,10 +100,10 @@ struct MediaLibraryView: View {
         }
     }
 
-    private var warningBanner: some View {
+    private func warningBanner(usePadLandscapeLayout: Bool) -> some View {
         HStack {
             Text("Warning! Uninstalling the app will erase all media and cannot be recovered!")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: usePadLandscapeLayout ? 13 : 12, weight: .medium))
                 .foregroundColor(.white)
 
             Spacer()
@@ -128,20 +137,28 @@ struct MediaLibraryView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var contentArea: some View {
+    private func contentArea(containerWidth: CGFloat, usePadLandscapeLayout: Bool) -> some View {
         Group {
             switch selectedTab {
             case .materials:
                 if library.materials.isEmpty {
                     emptyState(text: "No items in the library or no results for this filter")
                 } else {
-                    mediaGrid(items: library.materials)
+                    mediaGrid(
+                        items: library.materials,
+                        containerWidth: containerWidth,
+                        usePadLandscapeLayout: usePadLandscapeLayout
+                    )
                 }
             case .recycle:
                 if library.trashed.isEmpty {
                     emptyState(text: "Trash is empty")
                 } else {
-                    mediaGrid(items: library.trashed)
+                    mediaGrid(
+                        items: library.trashed,
+                        containerWidth: containerWidth,
+                        usePadLandscapeLayout: usePadLandscapeLayout
+                    )
                 }
             }
         }
@@ -154,22 +171,42 @@ struct MediaLibraryView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func mediaGrid(items: [MediaItem]) -> some View {
-        ScrollView {
-            let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
-            LazyVGrid(columns: columns, spacing: 8) {
+    private func mediaGrid(
+        items: [MediaItem],
+        containerWidth: CGFloat,
+        usePadLandscapeLayout: Bool
+    ) -> some View {
+        let horizontalSpacing: CGFloat = usePadLandscapeLayout ? 60 : 8
+        let verticalSpacing: CGFloat = usePadLandscapeLayout ? 30 : 8
+        let innerHorizontalInset: CGFloat = usePadLandscapeLayout ? 28 : 0
+        let iPadCellWidth: CGFloat = {
+            let usable = max(0, containerWidth - innerHorizontalInset * 2 - horizontalSpacing * 2)
+            return min(300, max(120, usable / 3.0))
+        }()
+        let columns: [GridItem] = {
+            if usePadLandscapeLayout {
+                return Array(repeating: GridItem(.fixed(iPadCellWidth), spacing: horizontalSpacing), count: 3)
+            }
+            return Array(repeating: GridItem(.flexible(), spacing: horizontalSpacing), count: 3)
+        }()
+
+        return ScrollView {
+            LazyVGrid(columns: columns, spacing: verticalSpacing) {
                 ForEach(items) { item in
                     MediaLibraryThumbnailCell(
                         item: item,
                         isSelecting: isSelecting,
-                        isSelected: selectedIDs.contains(item.id)
+                        isSelected: selectedIDs.contains(item.id),
+                        usePadLandscapeLayout: usePadLandscapeLayout
                     )
                     .onTapGesture {
                         handleItemTap(item)
                     }
                 }
             }
-            .padding(.top, 8)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.horizontal, innerHorizontalInset)
+            .padding(.top, usePadLandscapeLayout ? 6 : 8)
         }
     }
 
@@ -245,7 +282,7 @@ struct MediaLibraryView: View {
         }
     }
 
-    private var bottomTabs: some View {
+    private func bottomTabs(usePadLandscapeLayout: Bool) -> some View {
         HStack(spacing: 18) {
             tabItem(title: "Library", systemName: "photo.on.rectangle", isSelected: selectedTab == .materials) {
                 selectedTab = .materials
@@ -256,8 +293,8 @@ struct MediaLibraryView: View {
                 clearSelectionIfNeeded()
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, usePadLandscapeLayout ? 20 : 16)
+        .padding(.vertical, usePadLandscapeLayout ? 12 : 10)
         .background(Color.white.opacity(0.08))
         .clipShape(Capsule(style: .continuous))
     }
@@ -374,9 +411,10 @@ private struct MediaLibraryThumbnailCell: View {
     let item: MediaItem
     let isSelecting: Bool
     let isSelected: Bool
+    var usePadLandscapeLayout: Bool = false
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
+        let base = ZStack(alignment: .bottomLeading) {
             switch item.type {
             case .photo(let image):
                 Image(uiImage: image)
@@ -405,9 +443,18 @@ private struct MediaLibraryThumbnailCell: View {
                     .padding(6)
             }
         }
-        .frame(height: 110)
+
+        Group {
+            if usePadLandscapeLayout {
+                base
+                    .aspectRatio(4.0 / 3.0, contentMode: .fit)
+            } else {
+                base
+                    .frame(height: 110)
+            }
+        }
         .clipped()
-        .cornerRadius(8)
+        .cornerRadius(usePadLandscapeLayout ? 10 : 8)
     }
 
     private func makeVideoThumbnail(url: URL) -> UIImage? {

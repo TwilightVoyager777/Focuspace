@@ -16,7 +16,7 @@ let package = Package(
         .iOSApplication(
             name: "Focuspace",
             targets: ["AppModule"],
-            bundleIdentifier: "uci.mswe.Focuspace",
+            bundleIdentifier: "com.twilightvoyager777.focuspace",
             teamIdentifier: "UG9QCW355W",
             displayVersion: "1.0",
             bundleVersion: "1",

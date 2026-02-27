@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import SwiftUI
+import UIKit
 
 // SwiftUI 桥接：用 AVCaptureVideoPreviewLayer 显示相机画面
 struct CameraPreviewView: UIViewRepresentable {
@@ -22,6 +23,8 @@ struct CameraPreviewView: UIViewRepresentable {
         if uiView.videoPreviewLayer.session !== session {
             uiView.videoPreviewLayer.session = session
         }
+        // Keep preview orientation in sync with interface orientation.
+        configureConnection(uiView.videoPreviewLayer.connection)
         if context.coordinator.lastIsFront != isFrontCamera {
             context.coordinator.lastIsFront = isFrontCamera
             configureConnection(uiView.videoPreviewLayer.connection)
@@ -36,17 +39,47 @@ struct CameraPreviewView: UIViewRepresentable {
 
     private func configureConnection(_ connection: AVCaptureConnection?) {
         guard let connection else { return }
-        applyPortraitRotation(to: connection)
+        applyInterfaceRotation(to: connection)
         if connection.isVideoMirroringSupported {
             connection.automaticallyAdjustsVideoMirroring = false
             connection.isVideoMirrored = isFrontCamera
         }
     }
 
-    private func applyPortraitRotation(to connection: AVCaptureConnection) {
-        let portraitAngle: CGFloat = 90
-        if connection.isVideoRotationAngleSupported(portraitAngle) {
-            connection.videoRotationAngle = portraitAngle
+    private func applyInterfaceRotation(to connection: AVCaptureConnection) {
+        let angle = currentInterfaceVideoRotationAngle()
+        if connection.isVideoRotationAngleSupported(angle) {
+            connection.videoRotationAngle = angle
+        }
+    }
+
+    private func currentInterfaceVideoRotationAngle() -> CGFloat {
+        let deviceOrientation = UIDevice.current.orientation
+        switch deviceOrientation {
+        case .landscapeLeft:
+            return 0
+        case .landscapeRight:
+            return 180
+        case .portraitUpsideDown:
+            return 270
+        default:
+            break
+        }
+
+        let interfaceOrientation = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first(where: { $0.activationState == .foregroundActive })?
+            .interfaceOrientation
+
+        switch interfaceOrientation {
+        case .landscapeRight:
+            return 0
+        case .landscapeLeft:
+            return 180
+        case .portraitUpsideDown:
+            return 270
+        default:
+            return 90
         }
     }
 

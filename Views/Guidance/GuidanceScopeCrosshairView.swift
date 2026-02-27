@@ -47,7 +47,7 @@ struct GuidanceScopeCrosshairView: View {
                 startPulseIfNeeded()
             }
         }
-        .onChange(of: isHolding) { holding in
+        .onChange(of: isHolding) { _, holding in
             if holding {
                 startPulseIfNeeded()
             } else {

@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import AVKit
 import SwiftUI
 
@@ -483,7 +483,9 @@ private struct MediaPreviewView: View {
                                 if player == nil {
                                     player = AVPlayer(url: url)
                                 }
-                                videoAspectRatio = videoDisplayRatio(url: url)
+                                Task {
+                                    videoAspectRatio = await loadVideoDisplayRatio(url: url)
+                                }
                                 player?.play()
                             }
                             .onDisappear {
@@ -496,10 +498,15 @@ private struct MediaPreviewView: View {
         .toolbar(.hidden, for: .navigationBar)
     }
 
-    private func videoDisplayRatio(url: URL) -> CGFloat {
-        let asset = AVAsset(url: url)
-        guard let track = asset.tracks(withMediaType: .video).first else { return 9.0 / 16.0 }
-        let rect = CGRect(origin: .zero, size: track.naturalSize).applying(track.preferredTransform)
+    private nonisolated func loadVideoDisplayRatio(url: URL) async -> CGFloat {
+        let asset = AVURLAsset(url: url)
+        guard let tracks = try? await asset.loadTracks(withMediaType: .video),
+              let track = tracks.first,
+              let naturalSize = try? await track.load(.naturalSize),
+              let preferredTransform = try? await track.load(.preferredTransform) else {
+            return 9.0 / 16.0
+        }
+        let rect = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform)
         let width = abs(rect.width)
         let height = abs(rect.height)
         return height == 0 ? (9.0 / 16.0) : (width / height)

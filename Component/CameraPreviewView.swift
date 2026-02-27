@@ -36,12 +36,17 @@ struct CameraPreviewView: UIViewRepresentable {
 
     private func configureConnection(_ connection: AVCaptureConnection?) {
         guard let connection else { return }
-        if connection.isVideoOrientationSupported {
-            connection.videoOrientation = .portrait
-        }
+        applyPortraitRotation(to: connection)
         if connection.isVideoMirroringSupported {
             connection.automaticallyAdjustsVideoMirroring = false
             connection.isVideoMirrored = isFrontCamera
+        }
+    }
+
+    private func applyPortraitRotation(to connection: AVCaptureConnection) {
+        let portraitAngle: CGFloat = 90
+        if connection.isVideoRotationAngleSupported(portraitAngle) {
+            connection.videoRotationAngle = portraitAngle
         }
     }
 

@@ -8,8 +8,10 @@ struct ViewfinderView: View {
     // 相机会话控制器（权限 + 会话管理）
     @ObservedObject var cameraController: CameraSessionController
     var selectedTemplate: String?
+    var usePadPortraitLayout: Bool
     var guidanceUIMode: DebugSettings.GuidanceUIMode
-    var showDebugHUD: Bool
+    var showGuidanceDebugHUD: Bool
+    var showAICoachDebugHUD: Bool
 
     @EnvironmentObject private var debugSettings: DebugSettings
 
@@ -32,10 +34,20 @@ struct ViewfinderView: View {
                 Color.black
 
                 // 4:3 取景区域，宽度与屏幕一致（更接近原生相机观感）
-                let desiredTopGap: CGFloat = 14
-                let viewfinderWidth = proxy.size.width
+                let desiredTopGap: CGFloat = usePadPortraitLayout ? 8 : 14
+                let maxContainerWidth = proxy.size.width
+                let maxContainerHeight = proxy.size.height
+                let viewfinderWidth: CGFloat = {
+                    if usePadPortraitLayout {
+                        // iPad portrait: keep 4:3 inside available bounds.
+                        let maxWidthByHeight = maxContainerHeight * 3.0 / 4.0
+                        return min(maxContainerWidth, maxWidthByHeight)
+                    }
+                    // iPhone path remains unchanged.
+                    return maxContainerWidth
+                }()
                 let viewfinderHeight = viewfinderWidth * 4.0 / 3.0
-                let remainingHeight = max(0, proxy.size.height - viewfinderHeight)
+                let remainingHeight = max(0, maxContainerHeight - viewfinderHeight)
                 // 在居中基础上增加固定顶部间距，确保与 TopBar 有明确分离
                 let topGap = min(remainingHeight, remainingHeight * 0.5 + desiredTopGap)
                 let bottomGap = max(0, remainingHeight - topGap)
@@ -45,6 +57,8 @@ struct ViewfinderView: View {
                         .frame(height: topGap)
 
                     ZStack {
+                        let isSmartComposeThinking = cameraController.isSmartComposeProcessing
+
                         // 相机预览层（授权后显示真实画面）
                         if cameraController.state == .authorized || cameraController.state == .running {
                             CameraPreviewView(
@@ -64,12 +78,18 @@ struct ViewfinderView: View {
                                 cameraPosition: cameraController.cameraPosition,
                                 captureMode: cameraController.captureMode
                             ))
+                            .saturation(isSmartComposeThinking ? 0.85 : 1.0)
+                            .blur(radius: isSmartComposeThinking ? 10 : 0)
+                            .animation(.easeInOut(duration: 0.25), value: isSmartComposeThinking)
 
                             FilteredPreviewOverlayView(cameraController: cameraController)
                                 .modifier(LivePreviewCropModifier(
                                     cameraPosition: cameraController.cameraPosition,
                                     captureMode: cameraController.captureMode
                                 ))
+                                .saturation(isSmartComposeThinking ? 0.85 : 1.0)
+                                .blur(radius: isSmartComposeThinking ? 10 : 0)
+                                .animation(.easeInOut(duration: 0.25), value: isSmartComposeThinking)
                                 .allowsHitTesting(false)
                         } else {
                             Color.black
@@ -96,8 +116,14 @@ struct ViewfinderView: View {
                                 height: -subjectOffset.height
                             )
                         }()
+                        let coachedOffset = coachAugmentedOffset(
+                            baseOffset: cameraMoveOffset,
+                            score: cameraController.aiCoachScore,
+                            shouldHold: cameraController.aiCoachShouldHold,
+                            instruction: cameraController.aiCoachInstruction
+                        )
 
-                        if let selectedTemplate {
+                        if !isSmartComposeThinking, let selectedTemplate {
                             TemplateOverlayView(
                                 model: TemplateOverlayModel(
                                     templateId: selectedTemplate,
@@ -112,27 +138,27 @@ struct ViewfinderView: View {
                             switch guidanceUIMode {
                             case .moving:
                                 GuidanceLayeredDotHUDView(
-                                    guidanceOffset: cameraMoveOffset,
+                                    guidanceOffset: coachedOffset,
                                     strength: cameraController.rawSymmetryStrength,
-                                    isHolding: cameraController.stableSymmetryIsHolding
+                                    isHolding: cameraController.stableSymmetryIsHolding || cameraController.aiCoachShouldHold
                                 )
                             case .arrow:
                                 ArrowGuidanceHUDView(
-                                    guidanceOffset: cameraMoveOffset,
+                                    guidanceOffset: coachedOffset,
                                     strength: cameraController.rawSymmetryStrength,
-                                    isHolding: cameraController.stableSymmetryIsHolding
+                                    isHolding: cameraController.stableSymmetryIsHolding || cameraController.aiCoachShouldHold
                                 )
                             case .arrowScope:
                                 ArrowGuidanceHUDView(
-                                    guidanceOffset: cameraMoveOffset,
+                                    guidanceOffset: coachedOffset,
                                     strength: cameraController.rawSymmetryStrength,
-                                    isHolding: cameraController.stableSymmetryIsHolding,
+                                    isHolding: cameraController.stableSymmetryIsHolding || cameraController.aiCoachShouldHold,
                                     crosshairStyle: .scope
                                 )
                             }
                         }
 
-                        if showDebugHUD {
+                        if showGuidanceDebugHUD {
                             GuidanceDebugHUDView(
                                 selectedTemplate: selectedTemplate,
                                 guidanceUIMode: guidanceUIMode,
@@ -149,12 +175,43 @@ struct ViewfinderView: View {
                                 effectiveAnchorNormalized: cameraController.effectiveAnchorNormalized,
                                 userAnchorNormalized: cameraController.userSubjectAnchorNormalized,
                                 autoFocusAnchorNormalized: cameraController.currentAutoFocusAnchorNormalized,
-                                uiDx: cameraMoveOffset.width,
-                                uiDy: cameraMoveOffset.height
+                                uiDx: coachedOffset.width,
+                                uiDy: coachedOffset.height
                             )
                             .padding(8)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                             .allowsHitTesting(false)
+                        }
+
+                        if showAICoachDebugHUD {
+                            AICoachDebugHUDView(
+                                smartComposeActive: cameraController.isSmartComposeActive,
+                                smartComposeProcessing: cameraController.isSmartComposeProcessing,
+                                score: cameraController.aiCoachScore,
+                                shouldHold: cameraController.aiCoachShouldHold,
+                                instruction: cameraController.aiCoachInstruction,
+                                reason: cameraController.aiCoachReason,
+                                suggestedTemplateID: cameraController.aiCoachSuggestedTemplateID,
+                                suggestedTemplateReason: cameraController.aiCoachSuggestedTemplateReason,
+                                availabilityMessage: cameraController.aiCoachAvailabilityMessage
+                            )
+                            .padding(8)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                            .allowsHitTesting(false)
+                        }
+
+                        if let message = cameraController.templateSupportMessage {
+                            Text(message)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.red.opacity(0.82))
+                                .clipShape(Capsule(style: .continuous))
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                                .padding(.top, 8)
+                                .padding(.horizontal, 12)
+                                .allowsHitTesting(false)
                         }
 
                         if cameraController.isCameraSwitching, let snapshot = cameraController.switchSnapshot {
@@ -259,9 +316,10 @@ struct ViewfinderView: View {
 
                         // 点击对焦提示框
                         if showFocusIndicator {
+                            let focusIndicatorSize: CGFloat = usePadPortraitLayout ? 84 : 70
                             Circle()
                                 .stroke(Color.yellow.opacity(0.9), lineWidth: 2)
-                                .frame(width: 70, height: 70)
+                                .frame(width: focusIndicatorSize, height: focusIndicatorSize)
                                 .position(focusPoint)
                                 .transition(.opacity)
                         }
@@ -280,6 +338,19 @@ struct ViewfinderView: View {
                                 .clipShape(Capsule(style: .continuous))
                                 .padding(.top, 10)
                                 .transition(.opacity)
+                        }
+                    }
+                    .overlay {
+                        if cameraController.isSmartComposeActive || cameraController.isSmartComposeProcessing {
+                            SmartComposeEdgeAuraView(isProcessing: cameraController.isSmartComposeProcessing)
+                                .padding(2)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .overlay {
+                        if cameraController.isSmartComposeProcessing {
+                            SmartComposeWaveSweepView()
+                                .allowsHitTesting(false)
                         }
                     }
                     // 点击对焦（获取点击位置）
@@ -321,7 +392,7 @@ struct ViewfinderView: View {
                                 let updated = baseZoom * value
                                 let minZoom = cameraController.minUIZoom
                                 zoomValue = clamp(updated, min: minZoom, max: 8.0)
-                                cameraController.setZoomFactorWithinCurrentLens(zoomValue)
+                                cameraController.setZoomFactorWithinCurrentLens(zoomValue, smooth: true)
                             }
                             .onEnded { _ in
                                 let minZoom = cameraController.minUIZoom
@@ -337,7 +408,7 @@ struct ViewfinderView: View {
                     Color.clear
                         .frame(height: bottomGap)
                 }
-                .frame(width: proxy.size.width, height: proxy.size.height)
+                .frame(width: maxContainerWidth, height: maxContainerHeight)
             }
             .onAppear {
             }
@@ -352,7 +423,7 @@ struct ViewfinderView: View {
                 cameraController.stopSession()
             }
         }
-        .onChange(of: cameraController.stableSymmetryIsHolding) { holding in
+        .onChange(of: cameraController.stableSymmetryIsHolding) { _, holding in
             guard selectedTemplate != nil else {
                 didFireHoldHaptic = false
                 return
@@ -365,7 +436,7 @@ struct ViewfinderView: View {
                 didFireHoldHaptic = false
             }
         }
-        .onChange(of: selectedTemplate) { template in
+        .onChange(of: selectedTemplate) { _, template in
             if template == nil {
                 didFireHoldHaptic = false
             }
@@ -404,8 +475,195 @@ struct ViewfinderView: View {
         return CGSize(width: dirX * magnitude, height: dirY * magnitude)
     }
 
+    private func coachAugmentedOffset(
+        baseOffset: CGSize,
+        score: Int,
+        shouldHold: Bool,
+        instruction: String
+    ) -> CGSize {
+        if shouldHold {
+            return .zero
+        }
+        let clampedScore = clamp(CGFloat(score), min: 0, max: 100)
+        let urgency = 1 - (clampedScore / 100)
+        let gain = 1.0 + urgency * 0.35
+        var dx = baseOffset.width * gain
+        var dy = baseOffset.height * gain
+
+        let aiNudge = instructionNudge(from: instruction, urgency: urgency)
+        dx += aiNudge.width
+        dy += aiNudge.height
+        return CGSize(
+            width: clamp(dx, min: -1, max: 1),
+            height: clamp(dy, min: -1, max: 1)
+        )
+    }
+
+    private func instructionNudge(from instruction: String, urgency: CGFloat) -> CGSize {
+        let text = instruction.lowercased()
+        let nudge = max(0.04, 0.18 * urgency)
+        var dx: CGFloat = 0
+        var dy: CGFloat = 0
+        if text.contains("left") {
+            dx -= nudge
+        }
+        if text.contains("right") {
+            dx += nudge
+        }
+        if text.contains("up") {
+            dy -= nudge
+        }
+        if text.contains("down") {
+            dy += nudge
+        }
+        return CGSize(width: dx, height: dy)
+    }
+
     // 数值夹取
     private func clamp(_ value: CGFloat, min: CGFloat, max: CGFloat) -> CGFloat {
         Swift.max(min, Swift.min(value, max))
+    }
+}
+
+private struct SmartComposeEdgeAuraView: View {
+    let isProcessing: Bool
+
+    private let auraCornerRadius: CGFloat = 14
+
+    @State private var sweepPhase: CGFloat = -1.1
+    @State private var rotation: Double = 0
+    @State private var pulse: CGFloat = 0.62
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: auraCornerRadius, style: .continuous)
+                .strokeBorder(
+                    AngularGradient(
+                        colors: [
+                            Color(red: 0.28, green: 0.89, blue: 1.0),
+                            Color(red: 0.44, green: 1.0, blue: 0.78),
+                            Color(red: 1.0, green: 0.89, blue: 0.38),
+                            Color(red: 1.0, green: 0.49, blue: 0.72),
+                            Color(red: 0.65, green: 0.58, blue: 1.0),
+                            Color(red: 0.28, green: 0.89, blue: 1.0)
+                        ],
+                        center: .center,
+                        angle: .degrees(rotation)
+                    ),
+                    lineWidth: 3.4
+                )
+                .blendMode(.screen)
+
+            RoundedRectangle(cornerRadius: auraCornerRadius, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.clear,
+                            Color(red: 0.28, green: 0.89, blue: 1.0).opacity(0.92),
+                            Color(red: 0.44, green: 1.0, blue: 0.78).opacity(0.92),
+                            Color(red: 1.0, green: 0.89, blue: 0.38).opacity(0.90),
+                            Color(red: 1.0, green: 0.49, blue: 0.72).opacity(0.92),
+                            Color.clear
+                        ],
+                        startPoint: UnitPoint(x: sweepPhase, y: 0),
+                        endPoint: UnitPoint(x: sweepPhase + 1.15, y: 1)
+                    ),
+                    lineWidth: 7.2
+                )
+                .blur(radius: isProcessing ? 3.6 : 2.8)
+                .opacity((isProcessing ? 0.98 : 0.68) * pulse)
+
+            RoundedRectangle(cornerRadius: auraCornerRadius, style: .continuous)
+                .strokeBorder(Color.white.opacity(isProcessing ? 0.22 : 0.13), lineWidth: 1.1)
+        }
+        .compositingGroup()
+        .shadow(
+            color: Color(red: 0.28, green: 0.89, blue: 1.0).opacity((isProcessing ? 0.45 : 0.28) * pulse),
+            radius: isProcessing ? 11 : 8,
+            x: 0,
+            y: 0
+        )
+        .shadow(
+            color: Color(red: 1.0, green: 0.49, blue: 0.72).opacity((isProcessing ? 0.38 : 0.24) * pulse),
+            radius: isProcessing ? 14 : 10,
+            x: 0,
+            y: 0
+        )
+        .onAppear {
+            sweepPhase = -1.1
+            rotation = 0
+            pulse = isProcessing ? 0.8 : 0.62
+
+            withAnimation(.linear(duration: isProcessing ? 1.1 : 1.8).repeatForever(autoreverses: false)) {
+                sweepPhase = 1.2
+            }
+
+            withAnimation(.linear(duration: isProcessing ? 3.8 : 6.5).repeatForever(autoreverses: false)) {
+                rotation = 360
+            }
+
+            withAnimation(.easeInOut(duration: isProcessing ? 0.75 : 1.3).repeatForever(autoreverses: true)) {
+                pulse = 1.0
+            }
+        }
+        .transition(.opacity)
+    }
+}
+
+private struct SmartComposeWaveSweepView: View {
+    @State private var sweepPhase: CGFloat = 1.25
+    @State private var veilOpacity: CGFloat = 0.30
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .opacity(veilOpacity)
+
+                Rectangle()
+                    .fill(Color.black.opacity(0.16))
+
+                Capsule(style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.clear,
+                                Color(red: 0.27, green: 0.88, blue: 1.0).opacity(0.76),
+                                Color(red: 0.43, green: 1.0, blue: 0.76).opacity(0.80),
+                                Color(red: 1.0, green: 0.88, blue: 0.38).opacity(0.75),
+                                Color(red: 1.0, green: 0.45, blue: 0.70).opacity(0.76),
+                                Color.clear
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: proxy.size.width * 0.32, height: proxy.size.height * 0.98)
+                    .offset(x: sweepPhase * proxy.size.width)
+                    .blur(radius: 10)
+                    .blendMode(.screen)
+                    .opacity(0.82)
+
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.18))
+                    .frame(width: proxy.size.width * 0.07, height: proxy.size.height * 0.82)
+                    .offset(x: sweepPhase * proxy.size.width * 0.9)
+                    .blur(radius: 5)
+                    .blendMode(.screen)
+            }
+            .clipped()
+            .onAppear {
+                sweepPhase = 1.25
+                veilOpacity = 0.30
+                withAnimation(.linear(duration: 1.25).repeatForever(autoreverses: false)) {
+                    sweepPhase = -1.25
+                }
+                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                    veilOpacity = 0.36
+                }
+            }
+            .transition(.opacity)
+        }
     }
 }

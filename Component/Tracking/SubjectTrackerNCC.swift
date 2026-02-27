@@ -1,6 +1,6 @@
 import Accelerate
 import CoreGraphics
-import CoreImage
+@preconcurrency import CoreImage
 import CoreMedia
 import CoreVideo
 import Foundation
@@ -20,7 +20,7 @@ final class SubjectTrackerNCC {
     private var badFrameCount: Int = 0
     private var badFrameLimit: Int = 5
 
-    private static let ciContext = CIContext()
+    private let ciContext = CIContext()
 
     func reset() {
         isLocked = false
@@ -167,7 +167,7 @@ final class SubjectTrackerNCC {
             .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0.0])
             .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
 
-        SubjectTrackerNCC.ciContext.render(
+        ciContext.render(
             grayscale,
             to: downsampledBuffer,
             bounds: CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight),
@@ -188,14 +188,19 @@ final class SubjectTrackerNCC {
         )
 
         var floatData = [Float](repeating: 0, count: targetWidth * targetHeight)
-        var floatBuffer = vImage_Buffer(
-            data: &floatData,
-            height: vImagePixelCount(targetHeight),
-            width: vImagePixelCount(targetWidth),
-            rowBytes: targetWidth * MemoryLayout<Float>.size
-        )
-
-        vImageConvert_Planar8toPlanarF(&gray, &floatBuffer, 0, 255, vImage_Flags(kvImageNoFlags))
+        var didConvertToFloat = false
+        floatData.withUnsafeMutableBytes { floatBytes in
+            guard let floatBase = floatBytes.baseAddress else { return }
+            var floatBuffer = vImage_Buffer(
+                data: floatBase,
+                height: vImagePixelCount(targetHeight),
+                width: vImagePixelCount(targetWidth),
+                rowBytes: targetWidth * MemoryLayout<Float>.size
+            )
+            vImageConvert_Planar8toPlanarF(&gray, &floatBuffer, 0, 255, vImage_Flags(kvImageNoFlags))
+            didConvertToFloat = true
+        }
+        guard didConvertToFloat else { return nil }
 
         return (floatData, targetWidth, targetHeight)
     }

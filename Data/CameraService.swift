@@ -1,8 +1,6 @@
 @preconcurrency import AVFoundation
 import Observation
 
-extension AVCaptureSession: @unchecked Sendable {}
-
 @MainActor
 @Observable
 final class CameraService {
@@ -44,22 +42,18 @@ final class CameraService {
         isConfigured = true
     }
 
-    // Start the session on a background queue to avoid blocking UI.
-    // 在后台线程启动会话，避免阻塞主线程。
+    // Start the session.
+    // 启动会话。
     func startSession() {
         guard isConfigured, !session.isRunning else { return }
-        DispatchQueue.global(qos: .userInitiated).async { [session] in
-            session.startRunning()
-        }
+        session.startRunning()
     }
 
-    // Stop the session on a background queue to keep UI responsive.
-    // 在后台线程停止会话，保证界面流畅。
+    // Stop the session.
+    // 停止会话。
     func stopSession() {
         guard session.isRunning else { return }
-        DispatchQueue.global(qos: .userInitiated).async { [session] in
-            session.stopRunning()
-        }
+        session.stopRunning()
     }
 
     // Normalize permission state for the async workflow.

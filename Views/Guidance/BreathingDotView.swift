@@ -152,7 +152,7 @@ struct BreathingDotView: View {
             isPulsing = true
         }
         // 根据 zoomCue 触发一次性缩放脉冲。
-        .onChange(of: zoomCue) { newValue in
+        .onChange(of: zoomCue) { _, newValue in
             switch newValue {
             case .none:
                 break

@@ -8,7 +8,8 @@ final class VisionObjectTracker {
     var lastCenterNormalized: CGPoint? = nil
     var lastConfidence: Float = 0
     var lostFrameCount: Int = 0
-    let lostFrameLimit: Int = 10
+    let lostFrameLimit: Int = 14
+    let minReliableConfidence: Float = 0.15
     var initialBoxSize: CGFloat = 0.22
 
     func reset() {
@@ -29,6 +30,8 @@ final class VisionObjectTracker {
         let rect = CGRect(x: x, y: y, width: size, height: size)
         lastObservation = VNDetectedObjectObservation(boundingBox: rect)
         isTracking = true
+        lastCenterNormalized = tapPointNormalized
+        lastConfidence = 1.0
         lostFrameCount = 0
     }
 
@@ -61,9 +64,23 @@ final class VisionObjectTracker {
         lastObservation = result
         let bbox = result.boundingBox
         let center = CGPoint(x: bbox.midX, y: bbox.midY)
+        let confidence = result.confidence
+
+        if confidence < minReliableConfidence {
+            lostFrameCount += 1
+            if lostFrameCount < lostFrameLimit {
+                let fallbackCenter = lastCenterNormalized ?? center
+                let fallbackConfidence = max(lastConfidence * 0.7, confidence)
+                lastCenterNormalized = fallbackCenter
+                lastConfidence = fallbackConfidence
+                return (fallbackCenter, fallbackConfidence, false)
+            }
+            return (lastCenterNormalized, confidence, true)
+        }
+
         lastCenterNormalized = center
-        lastConfidence = result.confidence
+        lastConfidence = confidence
         lostFrameCount = 0
-        return (center, result.confidence, false)
+        return (center, confidence, false)
     }
 }

@@ -40,7 +40,8 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                     
                     SectionCard(title: "Debug") {
-                        ToggleRow(icon: "ladybug", title: "Show Debug HUD", isOn: $debugSettings.showDebugHUD)
+                        ToggleRow(icon: "waveform.path.ecg", title: "Guidance Debug HUD", isOn: $debugSettings.showGuidanceDebugHUD)
+                        ToggleRow(icon: "brain.head.profile", title: "AI Debug HUD", isOn: $debugSettings.showAICoachDebugHUD)
                         GuidanceModeRow(title: "Guidance UI", selection: $debugSettings.guidanceUIMode)
                     }
 

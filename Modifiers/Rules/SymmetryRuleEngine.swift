@@ -1,12 +1,12 @@
 import Accelerate
 import CoreGraphics
-import CoreImage
+@preconcurrency import CoreImage
 import CoreMedia
 import CoreVideo
 import Foundation
 
 final class SymmetryRuleEngine {
-    private static let ciContext = CIContext()
+    private let ciContext = CIContext()
 
     func compute(
         sampleBuffer: CMSampleBuffer,
@@ -51,7 +51,7 @@ final class SymmetryRuleEngine {
             .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0.0])
             .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
 
-        SymmetryRuleEngine.ciContext.render(
+        ciContext.render(
             grayscale,
             to: downsampledBuffer,
             bounds: CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight),
@@ -77,59 +77,74 @@ final class SymmetryRuleEngine {
         )
 
         var floatData = [Float](repeating: 0, count: width * height)
-        var floatBuffer = vImage_Buffer(
-            data: &floatData,
-            height: vImagePixelCount(height),
-            width: vImagePixelCount(width),
-            rowBytes: width * MemoryLayout<Float>.size
-        )
-
-        vImageConvert_Planar8toPlanarF(&gray, &floatBuffer, 0, 255, vImage_Flags(kvImageNoFlags))
-
         var gxData = [Float](repeating: 0, count: width * height)
         var gyData = [Float](repeating: 0, count: width * height)
-
-        var gxBuffer = vImage_Buffer(
-            data: &gxData,
-            height: vImagePixelCount(height),
-            width: vImagePixelCount(width),
-            rowBytes: width * MemoryLayout<Float>.size
-        )
-        var gyBuffer = vImage_Buffer(
-            data: &gyData,
-            height: vImagePixelCount(height),
-            width: vImagePixelCount(width),
-            rowBytes: width * MemoryLayout<Float>.size
-        )
 
         let gxKernel: [Float] = [-1, 0, 1, -2, 0, 2, -1, 0, 1]
         let gyKernel: [Float] = [-1, -2, -1, 0, 0, 0, 1, 2, 1]
 
-        vImageConvolve_PlanarF(
-            &floatBuffer,
-            &gxBuffer,
-            nil,
-            0,
-            0,
-            gxKernel,
-            3,
-            3,
-            0,
-            vImage_Flags(kvImageEdgeExtend)
-        )
+        var didBuildGradient = false
+        floatData.withUnsafeMutableBytes { floatBytes in
+            guard let floatBase = floatBytes.baseAddress else { return }
+            var floatBuffer = vImage_Buffer(
+                data: floatBase,
+                height: vImagePixelCount(height),
+                width: vImagePixelCount(width),
+                rowBytes: width * MemoryLayout<Float>.size
+            )
 
-        vImageConvolve_PlanarF(
-            &floatBuffer,
-            &gyBuffer,
-            nil,
-            0,
-            0,
-            gyKernel,
-            3,
-            3,
-            0,
-            vImage_Flags(kvImageEdgeExtend)
-        )
+            gxData.withUnsafeMutableBytes { gxBytes in
+                guard let gxBase = gxBytes.baseAddress else { return }
+                var gxBuffer = vImage_Buffer(
+                    data: gxBase,
+                    height: vImagePixelCount(height),
+                    width: vImagePixelCount(width),
+                    rowBytes: width * MemoryLayout<Float>.size
+                )
+
+                gyData.withUnsafeMutableBytes { gyBytes in
+                    guard let gyBase = gyBytes.baseAddress else { return }
+                    var gyBuffer = vImage_Buffer(
+                        data: gyBase,
+                        height: vImagePixelCount(height),
+                        width: vImagePixelCount(width),
+                        rowBytes: width * MemoryLayout<Float>.size
+                    )
+
+                    vImageConvert_Planar8toPlanarF(&gray, &floatBuffer, 0, 255, vImage_Flags(kvImageNoFlags))
+
+                    vImageConvolve_PlanarF(
+                        &floatBuffer,
+                        &gxBuffer,
+                        nil,
+                        0,
+                        0,
+                        gxKernel,
+                        3,
+                        3,
+                        0,
+                        vImage_Flags(kvImageEdgeExtend)
+                    )
+
+                    vImageConvolve_PlanarF(
+                        &floatBuffer,
+                        &gyBuffer,
+                        nil,
+                        0,
+                        0,
+                        gyKernel,
+                        3,
+                        3,
+                        0,
+                        vImage_Flags(kvImageEdgeExtend)
+                    )
+                    didBuildGradient = true
+                }
+            }
+        }
+        guard didBuildGradient else {
+            return (0, 0, 0)
+        }
 
         let ax = clamp(anchorNormalized.x, min: 0, max: 1) * CGFloat(width - 1)
         let ay = clamp(anchorNormalized.y, min: 0, max: 1) * CGFloat(height - 1)

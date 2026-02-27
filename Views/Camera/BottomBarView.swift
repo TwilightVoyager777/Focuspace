@@ -10,6 +10,7 @@ struct BottomBarView: View {
     let height: CGFloat
     let cameraController: CameraSessionController
     let latestThumbnail: UIImage?
+    let usePadPortraitLayout: Bool
     @Binding var selectedTemplate: String?
 
     @State private var bottomPanel: BottomPanel = .tools
@@ -18,11 +19,11 @@ struct BottomBarView: View {
     @State private var isToolAdjusting: Bool = false
 
     private var verticalPadding: CGFloat {
-        clamp(height * 0.03, min: 4, max: 8)
+        clamp(height * (usePadPortraitLayout ? 0.03 : 0.03), min: usePadPortraitLayout ? 4 : 4, max: usePadPortraitLayout ? 8 : 8)
     }
 
     private var rowSpacing: CGFloat {
-        clamp(height * 0.05, min: 6, max: 12)
+        clamp(height * (usePadPortraitLayout ? 0.05 : 0.05), min: usePadPortraitLayout ? 6 : 6, max: usePadPortraitLayout ? 12 : 12)
     }
 
     private var contentHeight: CGFloat {
@@ -30,12 +31,16 @@ struct BottomBarView: View {
     }
 
     private var controlsHeight: CGFloat {
-        clamp(contentHeight * 0.42, min: 86, max: 92)
+        clamp(
+            contentHeight * (usePadPortraitLayout ? 0.44 : 0.42),
+            min: usePadPortraitLayout ? 84 : 86,
+            max: usePadPortraitLayout ? 102 : 92
+        )
     }
 
     private var topRowHeight: CGFloat {
         let remaining = contentHeight - controlsHeight
-        return clamp(remaining, min: 52, max: 110)
+        return clamp(remaining, min: usePadPortraitLayout ? 56 : 52, max: usePadPortraitLayout ? 118 : 110)
     }
 
     private var slideAnimation: Animation {
@@ -47,17 +52,19 @@ struct BottomBarView: View {
     }
 
     private var toolsRowOffsetY: CGFloat {
-        isToolAdjustingActive ? 10 : -6
+        isToolAdjustingActive ? (usePadPortraitLayout ? 9 : 10) : (usePadPortraitLayout ? -4 : -6)
     }
 
     private var bottomControlsOffsetY: CGFloat {
         if bottomPanel == .templates {
-            return 12
+            return usePadPortraitLayout ? 10 : 12
         }
-        return isToolAdjustingActive ? 14 : -14
+        return isToolAdjustingActive ? (usePadPortraitLayout ? 12 : 14) : (usePadPortraitLayout ? -10 : -14)
     }
 
     var body: some View {
+        let barBackground = usePadPortraitLayout ? Color.clear : Color.black
+
         VStack(spacing: rowSpacing) {
             // 工具条（可横向滚动）
             ZStack {
@@ -75,6 +82,10 @@ struct BottomBarView: View {
                     highlightedTemplateID: pickerHighlightedTemplateID,
                     onSelect: { template in
                         let tappedID = template.id
+                        guard cameraController.isTemplateSupported(tappedID) else {
+                            cameraController.notifyUnsupportedTemplateSelection(tappedID)
+                            return
+                        }
                         if selectedTemplate == tappedID {
                             selectedTemplateID = ""
                             selectedTemplate = nil
@@ -94,7 +105,7 @@ struct BottomBarView: View {
                 .offset(y: bottomPanel == .templates ? 8 : 10)
                 .allowsHitTesting(bottomPanel == .templates)
             }
-            .onChange(of: bottomPanel) { newValue in
+            .onChange(of: bottomPanel) { _, newValue in
                 if newValue == .templates {
                     isToolAdjusting = false
                     pickerHighlightedTemplateID = nil
@@ -107,6 +118,7 @@ struct BottomBarView: View {
             BottomControlsView(
                 cameraController: cameraController,
                 latestThumbnail: latestThumbnail,
+                usePadPortraitLayout: usePadPortraitLayout,
                 onToggleBottomPanel: {
                     if bottomPanel == .tools {
                         pickerHighlightedTemplateID = nil
@@ -114,16 +126,30 @@ struct BottomBarView: View {
                     withAnimation(slideAnimation) {
                         bottomPanel = bottomPanel == .templates ? .tools : .templates
                     }
+                },
+                onSmartCompose: {
+                    cameraController.triggerSmartComposeRecommendation { recommendedTemplateID in
+                        guard let recommendedTemplateID else { return }
+                        let canonical = TemplateType.canonicalID(for: recommendedTemplateID) ?? recommendedTemplateID
+                        guard cameraController.isTemplateSupported(canonical) else {
+                            cameraController.notifyUnsupportedTemplateSelection(canonical)
+                            return
+                        }
+                        selectedTemplateID = canonical
+                        selectedTemplate = canonical
+                        pickerHighlightedTemplateID = canonical
+                        cameraController.setSelectedTemplate(canonical)
+                    }
                 }
             )
             .frame(height: controlsHeight)
             .offset(y: bottomControlsOffsetY)
             .animation(slideAnimation, value: bottomPanel)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, usePadPortraitLayout ? 18 : 16)
         .padding(.top, verticalPadding)
         .padding(.bottom, verticalPadding)
-        .background(Color.black)
+        .background(barBackground)
         .frame(height: height)
         .frame(maxWidth: .infinity)
     }

@@ -43,6 +43,58 @@ enum TemplateType {
             self = .other
         }
     }
+
+    var canonicalTemplateID: String? {
+        switch self {
+        case .symmetry:
+            return "symmetry"
+        case .center:
+            return "center"
+        case .leadingLines:
+            return "leading_lines"
+        case .framing:
+            return "framing"
+        case .thirds:
+            return "rule_of_thirds"
+        case .goldenPoints:
+            return "golden_spiral"
+        case .diagonal:
+            return "diagonals"
+        case .negativeSpace:
+            return "negative_space"
+        case .portraitHeadroom:
+            return "portrait_headroom"
+        case .triangle:
+            return "triangle"
+        case .layersFMB:
+            return "layers_fmb"
+        case .other:
+            return nil
+        }
+    }
+
+    static let supportedTemplateIDs: Set<String> = [
+        "symmetry",
+        "center",
+        "leading_lines",
+        "framing",
+        "rule_of_thirds",
+        "golden_spiral",
+        "diagonals",
+        "negative_space",
+        "portrait_headroom",
+        "triangle",
+        "layers_fmb"
+    ]
+
+    static func canonicalID(for id: String?) -> String? {
+        TemplateType(id: id).canonicalTemplateID
+    }
+
+    static func isSupportedTemplateID(_ id: String?) -> Bool {
+        guard let canonical = canonicalID(for: id) else { return false }
+        return supportedTemplateIDs.contains(canonical)
+    }
 }
 
 struct TemplateComputationResult {

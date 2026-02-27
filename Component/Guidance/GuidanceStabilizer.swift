@@ -41,7 +41,7 @@ struct GuidanceStabilizer {
             return dxStable
         }
 
-        var err = clamp(rawDx * outputGain, min: -1, max: 1)
+        let err = clamp(rawDx * outputGain, min: -1, max: 1)
 
         if !isHolding && abs(err) < deadIn {
             isHolding = true

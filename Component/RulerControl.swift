@@ -119,7 +119,7 @@ struct RulerControl: View {
                     isAutoSelected = autoSelectedFlag
                     syncThumbFromValue()
                 }
-                .onChange(of: width) { newValue in
+                .onChange(of: width) { _, newValue in
                     availableWidth = newValue
                     syncThumbFromValue()
                 }
@@ -128,10 +128,10 @@ struct RulerControl: View {
 
         }
         .padding(.horizontal, 8)
-        .onChange(of: value) { _ in
+        .onChange(of: value) { _, _ in
             syncThumbFromValue()
         }
-        .onChange(of: autoSelectedFlag) { newValue in
+        .onChange(of: autoSelectedFlag) { _, newValue in
             if !isDraggingThumb {
                 isAutoSelected = newValue
                 if newValue {
@@ -173,7 +173,9 @@ struct RulerControl: View {
             return
         }
         autoTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
-            requestAutoSync(force: false)
+            Task { @MainActor in
+                requestAutoSync(force: false)
+            }
         }
     }
 

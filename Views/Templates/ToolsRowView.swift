@@ -105,17 +105,17 @@ struct BottomC1ToolsRowView: View {
                 }
             }
         }
-        .onChange(of: activeTool) { newValue in
+        .onChange(of: activeTool) { _, newValue in
             rulerValue = initialRulerValue(for: newValue)
             isAdjusting = newValue != .none
         }
         .onAppear {
             isAdjusting = isActiveToolAdjusting
         }
-        .onChange(of: rulerValue) { newValue in
+        .onChange(of: rulerValue) { _, newValue in
             applyRulerValueIfNeeded(newValue)
         }
-        .onChange(of: cameraController.captureMode) { newValue in
+        .onChange(of: cameraController.captureMode) { _, newValue in
             if newValue == .video {
                 if activeTool == .sharpness || activeTool == .contrast || activeTool == .saturation {
                     activeTool = .none
@@ -336,21 +336,13 @@ struct BottomC1ToolsRowView: View {
     private func requestAutoValue(completion: @escaping (Double) -> Void) {
         switch activeTool {
         case .wb:
-            cameraController.getCurrentWBTemperature { value in
-                completion(Double(value))
-            }
+            completion(Double(cameraController.currentWhiteBalanceTemperature() ?? 5000))
         case .iso:
-            cameraController.getCurrentISO { value in
-                completion(Double(value))
-            }
+            completion(Double(cameraController.currentISOValue() ?? 100))
         case .shutter:
-            cameraController.getCurrentShutterSeconds { value in
-                completion(value)
-            }
+            completion(cameraController.currentExposureDurationSeconds() ?? (1.0 / 60.0))
         case .ev:
-            cameraController.getCurrentEV { value in
-                completion(Double(value))
-            }
+            completion(Double(cameraController.currentExposureBias() ?? 0))
         case .sharpness:
             completion(0)
         case .contrast:

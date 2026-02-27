@@ -59,7 +59,7 @@ struct LevelOverlay: View {
                 motion.start()
             }
         }
-        .onChange(of: isEnabled) { newValue in
+        .onChange(of: isEnabled) { _, newValue in
             if newValue {
                 motion.start()
             } else {

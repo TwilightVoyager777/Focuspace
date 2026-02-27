@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import AVKit
 import Photos
 import SwiftUI
@@ -182,17 +182,27 @@ private struct GalleryDetailView: View {
     }
 
     private func updateVideoAspectRatio(for url: URL) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let asset = AVAsset(url: url)
-            guard let track = asset.tracks(withMediaType: .video).first else { return }
-            let size = track.naturalSize.applying(track.preferredTransform)
-            let width = abs(size.width)
-            let height = abs(size.height)
-            guard height > 0 else { return }
-            let ratio = width / height
-            DispatchQueue.main.async {
+        Task(priority: .userInitiated) {
+            let ratio = await loadVideoAspectRatio(for: url)
+            await MainActor.run {
                 videoAspectRatio = ratio
             }
         }
+    }
+
+    private nonisolated func loadVideoAspectRatio(for url: URL) async -> CGFloat {
+        let asset = AVURLAsset(url: url)
+        guard let tracks = try? await asset.loadTracks(withMediaType: .video),
+              let track = tracks.first,
+              let naturalSize = try? await track.load(.naturalSize),
+              let preferredTransform = try? await track.load(.preferredTransform) else {
+            return 9.0 / 16.0
+        }
+
+        let size = naturalSize.applying(preferredTransform)
+        let width = abs(size.width)
+        let height = abs(size.height)
+        guard height > 0 else { return 9.0 / 16.0 }
+        return width / height
     }
 }

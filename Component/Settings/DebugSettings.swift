@@ -7,7 +7,8 @@ final class DebugSettings: ObservableObject {
         case arrowScope
     }
 
-    @Published var showDebugHUD: Bool = false
+    @Published var showGuidanceDebugHUD: Bool = false
+    @Published var showAICoachDebugHUD: Bool = false
     @Published var guidanceUIMode: GuidanceUIMode = .arrow
     @Published var showGridOverlay: Bool = true
 }

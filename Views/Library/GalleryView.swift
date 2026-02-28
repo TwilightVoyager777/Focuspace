@@ -16,7 +16,10 @@ struct GalleryView: View {
                 let columns = [GridItem(.adaptive(minimum: 90), spacing: 12)]
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(mediaLibrary.items) { item in
-                        GalleryThumbnailCell(item: item)
+                        GalleryThumbnailCell(
+                            item: item,
+                            thumbnail: mediaLibrary.loadThumbnail(for: item)
+                        )
                             .onTapGesture {
                                 selectedItem = item
                             }
@@ -35,23 +38,19 @@ struct GalleryView: View {
 // 缩略图单元
 private struct GalleryThumbnailCell: View {
     let item: MediaItem
+    let thumbnail: UIImage?
 
     var body: some View {
         ZStack {
-            switch item.type {
-            case .photo(let image):
-                Image(uiImage: image)
+            if let thumbnail {
+                Image(uiImage: thumbnail)
                     .resizable()
                     .scaledToFill()
-            case .video(let url):
-                if let thumbnail = makeVideoThumbnail(url: url) {
-                    Image(uiImage: thumbnail)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Color.gray.opacity(0.3)
-                }
+            } else {
+                Color.gray.opacity(0.3)
+            }
 
+            if case .video = item.type {
                 Image(systemName: "play.circle.fill")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundColor(.white)
@@ -61,20 +60,6 @@ private struct GalleryThumbnailCell: View {
         .frame(width: 90, height: 90)
         .clipped()
         .cornerRadius(8)
-    }
-
-    private func makeVideoThumbnail(url: URL) -> UIImage? {
-        let asset = AVAsset(url: url)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-
-        let time = CMTime(seconds: 0.1, preferredTimescale: 600)
-        do {
-            let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
-            return UIImage(cgImage: cgImage)
-        } catch {
-            return nil
-        }
     }
 }
 
@@ -89,11 +74,16 @@ private struct GalleryDetailView: View {
     var body: some View {
         VStack(spacing: 16) {
             switch item.type {
-            case .photo(let image):
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: 400)
+            case .photo(let url):
+                if let image = UIImage(contentsOfFile: url.path) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: 400)
+                } else {
+                    Color.gray.opacity(0.2)
+                        .frame(maxWidth: .infinity, maxHeight: 400)
+                }
             case .video(let url):
                 VideoPlayer(player: player)
                     .frame(maxWidth: .infinity, maxHeight: 400)
@@ -148,7 +138,11 @@ private struct GalleryDetailView: View {
 
     private func saveToPhotos() {
         switch item.type {
-        case .photo(let image):
+        case .photo(let url):
+            guard let image = UIImage(contentsOfFile: url.path) else {
+                exportMessage = "Export failed"
+                return
+            }
             PHPhotoLibrary.shared().performChanges({
                 PHAssetChangeRequest.creationRequestForAsset(from: image)
             }, completionHandler: { success, error in

@@ -6,12 +6,18 @@ struct GuidanceLayeredDotHUDView: View {
     var isHolding: Bool = false
 
     var body: some View {
-        ZStack {
-            MovingTargetMarkerView(
-                guidanceOffset: guidanceOffset,
-                strength: strength,
-                isHolding: isHolding
-            )
+        GeometryReader { geo in
+            let maxRadiusPx = GuidanceUIConstants.scaledMaxRadius(for: geo.size)
+
+            ZStack {
+                MovingTargetMarkerView(
+                    guidanceOffset: guidanceOffset,
+                    strength: strength,
+                    isHolding: isHolding,
+                    maxRadiusPx: maxRadiusPx
+                )
+            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
@@ -21,13 +27,14 @@ private struct MovingTargetMarkerView: View {
     var guidanceOffset: CGSize
     var strength: CGFloat
     var isHolding: Bool
+    var maxRadiusPx: CGFloat = GuidanceUIConstants.defaultMaxRadiusPx
 
     private var clampedStrength: CGFloat {
         min(max(strength, 0), 1)
     }
 
     private var clampedOffset: CGSize {
-        GuidanceUIConstants.clampedGuidanceOffset(guidanceOffset)
+        GuidanceUIConstants.snappedGuidanceOffset(guidanceOffset, maxRadiusPx: maxRadiusPx)
     }
 
     var body: some View {

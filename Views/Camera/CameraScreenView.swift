@@ -86,6 +86,7 @@ struct CameraScreenView: View {
                                     onSelectTemplate: { selectedTemplate = $0 }
                                 )
                                 .frame(width: leftPanelWidth, height: screenHeight)
+                                .offset(x: -20)
 
                                 Spacer(minLength: 0)
 
@@ -98,6 +99,7 @@ struct CameraScreenView: View {
                                     selectedTemplate: $selectedTemplate
                                 )
                                 .frame(width: rightPanelWidth, height: screenHeight)
+                                .offset(x: 25)
                             }
                             .frame(width: proxy.size.width, height: proxy.size.height)
                         }
@@ -151,9 +153,10 @@ struct CameraScreenView: View {
                         selectedTemplate = cameraController.selectedTemplateID
                         return
                     }
-                    let canonical = TemplateType.canonicalID(for: newValue)
+                    let canonical = CompositionTemplateType.canonicalID(for: newValue)
                     if canonical != newValue {
                         selectedTemplate = canonical
+                        return
                     }
                     cameraController.setSelectedTemplate(canonical)
                 }

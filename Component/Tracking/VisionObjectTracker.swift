@@ -23,8 +23,9 @@ final class VisionObjectTracker {
     func startTracking(tapPointNormalized: CGPoint) {
         let size = initialBoxSize
         let half = size * 0.5
-        var x = tapPointNormalized.x - half
-        var y = tapPointNormalized.y - half
+        let visionPoint = convertAppPointToVisionSpace(tapPointNormalized)
+        var x = visionPoint.x - half
+        var y = visionPoint.y - half
         x = max(0, min(1 - size, x))
         y = max(0, min(1 - size, y))
         let rect = CGRect(x: x, y: y, width: size, height: size)
@@ -63,7 +64,7 @@ final class VisionObjectTracker {
 
         lastObservation = result
         let bbox = result.boundingBox
-        let center = CGPoint(x: bbox.midX, y: bbox.midY)
+        let center = convertVisionPointToAppSpace(CGPoint(x: bbox.midX, y: bbox.midY))
         let confidence = result.confidence
 
         if confidence < minReliableConfidence {
@@ -82,5 +83,19 @@ final class VisionObjectTracker {
         lastConfidence = confidence
         lostFrameCount = 0
         return (center, confidence, false)
+    }
+
+    private func convertAppPointToVisionSpace(_ point: CGPoint) -> CGPoint {
+        CGPoint(
+            x: point.x,
+            y: 1 - point.y
+        )
+    }
+
+    private func convertVisionPointToAppSpace(_ point: CGPoint) -> CGPoint {
+        CGPoint(
+            x: point.x,
+            y: 1 - point.y
+        )
     }
 }

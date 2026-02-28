@@ -37,7 +37,7 @@ struct BottomC1ToolsRowView: View {
         let levelEnabled = LevelOverlay.isSupported
         let isVideoMode = cameraController.captureMode == .video
         var list: [ToolItem] = [
-            ToolItem(title: "Front", systemName: "camera.rotate"),
+            ToolItem(title: "Front", systemName: "camera.rotate", isEnabled: !cameraController.isRecording),
             ToolItem(title: "White Balance", systemName: "circle.lefthalf.filled"),
             ToolItem(title: "ISO", systemName: "sun.max"),
             ToolItem(title: "Shutter", systemName: "timer"),

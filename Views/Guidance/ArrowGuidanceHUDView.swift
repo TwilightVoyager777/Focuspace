@@ -16,38 +16,41 @@ struct ArrowGuidanceHUDView: View {
     }
 
     var body: some View {
-        let displayedOffset = isHolding ? .zero : guidanceOffset
-        let clampedOffset = GuidanceUIConstants.clampedGuidanceOffset(displayedOffset)
-        let dxPx = clampedOffset.width
-        let dyPx = clampedOffset.height
-        let distance = sqrt(dxPx * dxPx + dyPx * dyPx)
-        let arrowOpacity = isHolding ? 0 : (0.25 + 0.75 * clampedStrength)
-        let headLength: CGFloat = 5 + 6 * clampedStrength
+        GeometryReader { geo in
+            let displayedOffset = isHolding ? .zero : guidanceOffset
+            let maxRadiusPx = GuidanceUIConstants.scaledMaxRadius(for: geo.size)
+            let clampedOffset = GuidanceUIConstants.snappedGuidanceOffset(
+                displayedOffset,
+                maxRadiusPx: maxRadiusPx
+            )
+            let dxPx = clampedOffset.width
+            let dyPx = clampedOffset.height
+            let distance = sqrt(dxPx * dxPx + dyPx * dyPx)
+            let arrowOpacity = isHolding ? 0 : (0.25 + 0.75 * clampedStrength)
+            let headLength: CGFloat = 5 + 6 * clampedStrength
+            let cx = geo.size.width * 0.5
+            let cy = geo.size.height * 0.5
+            let center = CGPoint(x: cx, y: cy)
+            let target = CGPoint(x: cx + dxPx, y: cy + dyPx)
+            let markerClearance: CGFloat = {
+                switch crosshairStyle {
+                case .scope:
+                    return 14.0
+                case .standard:
+                    let ringSize = 16 + clampedStrength * 6
+                    // Keep arrow tip outside the target ring (radius + stroke + visual gap).
+                    return (ringSize * 0.5) + 3.0
+                }
+            }()
+            let effectiveDistance = distance - markerClearance
 
-        ZStack {
-            if crosshairStyle == .standard {
-                crosshairView
-                    .opacity(0.95)
-            }
+            ZStack {
+                if crosshairStyle == .standard {
+                    crosshairView
+                        .opacity(0.95)
+                }
 
-            // Arrow from center to camera-move target
-            GeometryReader { geo in
-                let cx = geo.size.width * 0.5
-                let cy = geo.size.height * 0.5
-                let center = CGPoint(x: cx, y: cy)
-                let target = CGPoint(x: cx + dxPx, y: cy + dyPx)
-                let markerClearance: CGFloat = {
-                    switch crosshairStyle {
-                    case .scope:
-                        return 14.0
-                    case .standard:
-                        let ringSize = 16 + clampedStrength * 6
-                        // Keep arrow tip outside the target ring (radius + stroke + visual gap).
-                        return (ringSize * 0.5) + 3.0
-                    }
-                }()
-                let effectiveDistance = distance - markerClearance
-
+                // Arrow from center to camera-move target
                 Path { path in
                     guard effectiveDistance >= (headLength + 1) else { return }
                     let ux = (target.x - center.x) / distance
@@ -88,22 +91,22 @@ struct ArrowGuidanceHUDView: View {
                     )
                 )
                 .opacity(effectiveDistance < (headLength + 1) ? 0 : arrowOpacity)
-            }
 
-            if crosshairStyle == .scope {
-                scopeSubjectMarker(offset: clampedOffset)
-            } else {
-                standardTargetRing(
-                    offset: clampedOffset,
-                    strength: clampedStrength,
-                    isHolding: isHolding
-                )
-            }
+                if crosshairStyle == .scope {
+                    scopeSubjectMarker(offset: clampedOffset)
+                } else {
+                    standardTargetRing(
+                        offset: clampedOffset,
+                        strength: clampedStrength,
+                        isHolding: isHolding
+                    )
+                }
 
-            if crosshairStyle == .scope {
-                // Keep scope crosshair on top so the marker glow won't mask its shape.
-                crosshairView
-                    .opacity(0.98)
+                if crosshairStyle == .scope {
+                    // Keep scope crosshair on top so the marker glow won't mask its shape.
+                    crosshairView
+                        .opacity(0.98)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)

@@ -84,6 +84,7 @@ struct BottomBarView: View {
                             useLandscapeSidebarLayout: true
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .offset(x: 25)
                         .opacity(bottomPanel == .tools ? 1 : 0)
                         .allowsHitTesting(bottomPanel == .tools)
 
@@ -101,23 +102,22 @@ struct BottomBarView: View {
                                     selectedTemplateID = ""
                                     selectedTemplate = nil
                                     pickerHighlightedTemplateID = nil
-                                    cameraController.setSelectedTemplate(nil)
                                 } else {
                                     selectedTemplateID = tappedID
                                     selectedTemplate = tappedID
                                     pickerHighlightedTemplateID = tappedID
-                                    cameraController.setSelectedTemplate(tappedID)
                                 }
                             }
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .offset(x: 25)
                         .opacity(bottomPanel == .templates ? 1 : 0)
                         .allowsHitTesting(bottomPanel == .templates)
                     }
                     .onChange(of: bottomPanel) { _, newValue in
                         if newValue == .templates {
                             isToolAdjusting = false
-                            pickerHighlightedTemplateID = nil
+                            pickerHighlightedTemplateID = selectedTemplateID.isEmpty ? nil : selectedTemplateID
                         }
                     }
                     .frame(width: listColumnWidth)
@@ -130,9 +130,6 @@ struct BottomBarView: View {
                         usePadPortraitLayout: false,
                         useLandscapeSidebarLayout: true,
                         onToggleBottomPanel: {
-                            if bottomPanel == .tools {
-                                pickerHighlightedTemplateID = nil
-                            }
                             withAnimation(slideAnimation) {
                                 bottomPanel = bottomPanel == .templates ? .tools : .templates
                             }
@@ -140,7 +137,7 @@ struct BottomBarView: View {
                         onSmartCompose: {
                             cameraController.triggerSmartComposeRecommendation { recommendedTemplateID in
                                 guard let recommendedTemplateID else { return }
-                                let canonical = TemplateType.canonicalID(for: recommendedTemplateID) ?? recommendedTemplateID
+                                let canonical = CompositionTemplateType.canonicalID(for: recommendedTemplateID) ?? recommendedTemplateID
                                 guard cameraController.isTemplateSupported(canonical) else {
                                     cameraController.notifyUnsupportedTemplateSelection(canonical)
                                     return
@@ -148,7 +145,6 @@ struct BottomBarView: View {
                                 selectedTemplateID = canonical
                                 selectedTemplate = canonical
                                 pickerHighlightedTemplateID = canonical
-                                cameraController.setSelectedTemplate(canonical)
                             }
                         }
                     )
@@ -186,12 +182,10 @@ struct BottomBarView: View {
                                     selectedTemplateID = ""
                                     selectedTemplate = nil
                                     pickerHighlightedTemplateID = nil
-                                    cameraController.setSelectedTemplate(nil)
                                 } else {
                                     selectedTemplateID = tappedID
                                     selectedTemplate = tappedID
                                     pickerHighlightedTemplateID = tappedID
-                                    cameraController.setSelectedTemplate(tappedID)
                                 }
                             }
                         )
@@ -204,7 +198,7 @@ struct BottomBarView: View {
                     .onChange(of: bottomPanel) { _, newValue in
                         if newValue == .templates {
                             isToolAdjusting = false
-                            pickerHighlightedTemplateID = nil
+                            pickerHighlightedTemplateID = selectedTemplateID.isEmpty ? nil : selectedTemplateID
                         }
                     }
                     .frame(height: topRowHeight)
@@ -216,9 +210,6 @@ struct BottomBarView: View {
                         latestThumbnail: latestThumbnail,
                         usePadPortraitLayout: usePadPortraitLayout,
                         onToggleBottomPanel: {
-                            if bottomPanel == .tools {
-                                pickerHighlightedTemplateID = nil
-                            }
                             withAnimation(slideAnimation) {
                                 bottomPanel = bottomPanel == .templates ? .tools : .templates
                             }
@@ -226,7 +217,7 @@ struct BottomBarView: View {
                         onSmartCompose: {
                             cameraController.triggerSmartComposeRecommendation { recommendedTemplateID in
                                 guard let recommendedTemplateID else { return }
-                                let canonical = TemplateType.canonicalID(for: recommendedTemplateID) ?? recommendedTemplateID
+                                let canonical = CompositionTemplateType.canonicalID(for: recommendedTemplateID) ?? recommendedTemplateID
                                 guard cameraController.isTemplateSupported(canonical) else {
                                     cameraController.notifyUnsupportedTemplateSelection(canonical)
                                     return
@@ -234,7 +225,6 @@ struct BottomBarView: View {
                                 selectedTemplateID = canonical
                                 selectedTemplate = canonical
                                 pickerHighlightedTemplateID = canonical
-                                cameraController.setSelectedTemplate(canonical)
                             }
                         }
                     )
@@ -250,9 +240,21 @@ struct BottomBarView: View {
                 .frame(maxWidth: .infinity)
             }
         }
+        .onAppear {
+            syncTemplateSelectionState(with: selectedTemplate)
+        }
+        .onChange(of: selectedTemplate) { _, newValue in
+            syncTemplateSelectionState(with: newValue)
+        }
     }
 
     private func clamp(_ value: CGFloat, min: CGFloat, max: CGFloat) -> CGFloat {
         Swift.max(min, Swift.min(value, max))
+    }
+
+    private func syncTemplateSelectionState(with templateID: String?) {
+        let resolvedID = CompositionTemplateType.canonicalID(for: templateID)
+        selectedTemplateID = resolvedID ?? ""
+        pickerHighlightedTemplateID = (bottomPanel == .templates) ? resolvedID : nil
     }
 }

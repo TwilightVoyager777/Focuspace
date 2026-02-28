@@ -79,7 +79,6 @@ struct RulerControl: View {
                                     let newValue = clampAndStep(valueFromNormalized(t))
                                     if newValue != value {
                                         value = newValue
-                                        triggerHaptic(force: false)
                                     }
                                 }
                                 .onEnded { _ in
@@ -158,7 +157,6 @@ struct RulerControl: View {
                                     let newValue = clampAndStep(valueFromNormalized(t))
                                     if newValue != value {
                                         value = newValue
-                                        triggerHaptic(force: false)
                                     }
                                 }
                                 .onEnded { _ in

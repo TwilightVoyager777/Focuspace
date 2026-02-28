@@ -15,6 +15,7 @@ struct ViewfinderView: View {
     var showAICoachDebugHUD: Bool
 
     @EnvironmentObject private var debugSettings: DebugSettings
+    @Environment(\.scenePhase) private var scenePhase
 
     // 当前缩放值（双指捏合实时更新）
     @State private var zoomValue: CGFloat = 1.0
@@ -27,6 +28,10 @@ struct ViewfinderView: View {
     @State private var focusPoint: CGPoint = .zero
     @State private var showFocusIndicator: Bool = false
     @State private var didFireHoldHaptic: Bool = false
+    private var effectiveHoldState: Bool {
+        guard selectedTemplate != nil else { return false }
+        return cameraController.stableSymmetryIsHolding || cameraController.aiCoachShouldHold
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -437,12 +442,22 @@ struct ViewfinderView: View {
                 cameraController.previewVisibleRectProvider = nil
                 cameraController.stopSession()
             }
-        }
-        .onChange(of: cameraController.stableSymmetryIsHolding) { _, holding in
-            guard selectedTemplate != nil else {
-                didFireHoldHaptic = false
-                return
+            .onChange(of: scenePhase) { _, newValue in
+                switch newValue {
+                case .active:
+                    cameraController.configureIfNeeded()
+                    cameraController.startSession()
+                    cameraController.syncConnectionsToInterfaceOrientation()
+                case .background:
+                    cameraController.stopSession()
+                case .inactive:
+                    break
+                @unknown default:
+                    break
+                }
             }
+        }
+        .onChange(of: effectiveHoldState) { _, holding in
             if holding {
                 guard didFireHoldHaptic == false else { return }
                 triggerHoldHaptic()
@@ -451,10 +466,8 @@ struct ViewfinderView: View {
                 didFireHoldHaptic = false
             }
         }
-        .onChange(of: selectedTemplate) { _, template in
-            if template == nil {
-                didFireHoldHaptic = false
-            }
+        .onChange(of: selectedTemplate) { _, _ in
+            didFireHoldHaptic = false
         }
     }
 

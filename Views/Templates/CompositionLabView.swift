@@ -1,14 +1,6 @@
 import SwiftUI
 import UIKit
 
-struct CompositionTemplate: Identifiable, TemplateSortable {
-    let id: String
-    let name: String
-    let subtitle: String
-    let philosophy: String
-    let examples: [String]
-}
-
 struct CompositionLabView: View {
     let selectTemplate: (String) -> Void
     let closeLab: () -> Void
@@ -287,74 +279,11 @@ struct TemplateDetailView: View {
     }
 
     private func bullets(for id: String) -> [String] {
-        switch id {
-        case "rule_of_thirds":
-            return [
-                "Place the subject near intersecting thirds.",
-                "Align horizon on upper or lower third.",
-                "Avoid centering unless intentional."
-            ]
-        case "golden_spiral":
-            return [
-                "Guide the eye along the spiral curve.",
-                "Position the focal point at the spiral core.",
-                "Keep the flow unobstructed."
-            ]
-        case "center":
-            return [
-                "Use strong symmetry for impact.",
-                "Keep edges clean and balanced.",
-                "Let the subject dominate the frame."
-            ]
-        case "symmetry":
-            return [
-                "Find mirrored shapes or reflections.",
-                "Keep the center line precise.",
-                "Reduce distractions at the edges."
-            ]
-        case "leading_lines":
-            return [
-                "Use lines to direct attention.",
-                "Keep lines clean and intentional.",
-                "Let lines converge on the subject."
-            ]
-        case "framing":
-            return [
-                "Use foreground elements as a frame.",
-                "Keep the subject inside the window.",
-                "Balance frame weight on both sides."
-            ]
-        case "portrait_headroom":
-            return [
-                "Keep eyes near the eye-line guide.",
-                "Leave clean headroom above the subject.",
-                "Avoid cramped framing at the top."
-            ]
-        case "diagonals":
-            return [
-                "Align the main structure along a diagonal.",
-                "Use diagonals to create motion and tension.",
-                "Keep the diagonal clean and dominant."
-            ]
-        case "triangle":
-            return [
-                "Build a clear triangle with subject elements.",
-                "Use the apex as the attention anchor.",
-                "Keep the base stable and uncluttered."
-            ]
-        case "layers_fmb":
-            return [
-                "Include a foreground element for depth.",
-                "Place the main subject in the midground.",
-                "Use background to set context, not clutter."
-            ]
-        default:
-            return [
-                "Give the subject room to breathe.",
-                "Use emptiness to emphasize form.",
-                "Simplify the background."
-            ]
-        }
+        TemplateRegistry.usageBullets(for: id) ?? [
+            "Give the subject room to breathe.",
+            "Use emptiness to emphasize form.",
+            "Simplify the background."
+        ]
     }
 
 }
@@ -935,141 +864,4 @@ struct ExamplePlaceholderView: View {
 
 private struct SelectedAsset: Identifiable {
     let id: String
-}
-
-private struct TemplateDTO: Decodable {
-    let id: String
-    let name: String
-    let subtitle: String
-    let philosophy: String
-    let examples: [String]?
-}
-
-enum TemplateCatalog {
-    static func load() -> [CompositionTemplate] {
-        guard let url = Bundle.main.url(forResource: "templates", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let dtos = try? JSONDecoder().decode([TemplateDTO].self, from: data) else {
-            return CompositionTemplate.mock
-        }
-
-        return dtos.map { dto in
-            CompositionTemplate(
-                id: dto.id,
-                name: dto.name,
-                subtitle: dto.subtitle,
-                philosophy: dto.philosophy,
-                examples: dto.examples ?? []
-            )
-        }
-    }
-
-    static func resolvedExamples(templateID: String, explicit: [String]) -> [String] {
-        var result: [String] = []
-        var seen = Set<String>()
-
-        for name in explicit {
-            guard !name.isEmpty else { continue }
-            if seen.insert(name).inserted {
-                result.append(name)
-            }
-        }
-
-        var foundViaProbe = false
-        for i in 1...12 {
-            let name = "\(templateID)_\(String(format: "%02d", i))"
-            if UIImage(named: name) != nil {
-                foundViaProbe = true
-                if seen.insert(name).inserted {
-                    result.append(name)
-                }
-            } else if foundViaProbe {
-                break
-            }
-        }
-
-        return result
-    }
-}
-
-extension CompositionTemplate {
-    static let mock: [CompositionTemplate] = [
-        CompositionTemplate(
-            id: "rule_of_thirds",
-            name: "Rule of Thirds",
-            subtitle: "Balance and dynamic tension",
-            philosophy: "Let the subject breathe within the frame.",
-            examples: ["rule_of_thirds_01", "rule_of_thirds_02"]
-        ),
-        CompositionTemplate(
-            id: "golden_spiral",
-            name: "Golden Spiral",
-            subtitle: "Natural visual flow",
-            philosophy: "Guide attention along a quiet curve.",
-            examples: ["golden_spiral_01", "golden_spiral_02"]
-        ),
-        CompositionTemplate(
-            id: "center",
-            name: "Center Composition",
-            subtitle: "Intentional symmetry",
-            philosophy: "Centering creates calm, confident focus.",
-            examples: ["center_01", "center_02"]
-        ),
-        CompositionTemplate(
-            id: "symmetry",
-            name: "Symmetry",
-            subtitle: "Reflections and balance",
-            philosophy: "Mirror the scene for a refined order.",
-            examples: ["symmetry_01", "symmetry_02"]
-        ),
-        CompositionTemplate(
-            id: "leading_lines",
-            name: "Leading Lines",
-            subtitle: "Direct the viewer",
-            philosophy: "Use lines to draw focus with intent.",
-            examples: ["leading_lines_01", "leading_lines_02"]
-        ),
-        CompositionTemplate(
-            id: "framing",
-            name: "Framing",
-            subtitle: "Layers and depth",
-            philosophy: "Build a visual window for the subject.",
-            examples: ["framing_01", "framing_02"]
-        ),
-        CompositionTemplate(
-            id: "negative_space",
-            name: "Negative Space",
-            subtitle: "Minimal emphasis",
-            philosophy: "Let emptiness amplify the subject.",
-            examples: ["negative_space_01", "negative_space_02"]
-        ),
-        CompositionTemplate(
-            id: "portrait_headroom",
-            name: "Portrait Headroom",
-            subtitle: "Eyes & headroom",
-            philosophy: "Place eyes with intent and keep headroom clean.",
-            examples: ["portrait_headroom_01", "portrait_headroom_02"]
-        ),
-        CompositionTemplate(
-            id: "diagonals",
-            name: "Diagonals",
-            subtitle: "Dynamic tension",
-            philosophy: "Diagonal structure creates energy and motion.",
-            examples: ["diagonals_01", "diagonals_02"]
-        ),
-        CompositionTemplate(
-            id: "triangle",
-            name: "Triangle Composition",
-            subtitle: "Stable geometry",
-            philosophy: "Triangles add balance and strong visual structure.",
-            examples: ["triangle_01", "triangle_02"]
-        ),
-        CompositionTemplate(
-            id: "layers_fmb",
-            name: "Layers (F–M–B)",
-            subtitle: "Depth & story",
-            philosophy: "Foreground, midground, background create depth and context.",
-            examples: ["layers_fmb_01", "layers_fmb_02"]
-        )
-    ]
 }

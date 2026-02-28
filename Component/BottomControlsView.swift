@@ -23,6 +23,7 @@ struct BottomControlsView: View {
                         SmartComposeButtonView(
                             isActive: cameraController.isSmartComposeActive,
                             isProcessing: cameraController.isSmartComposeProcessing,
+                            isEnabled: !cameraController.isRecording,
                             size: 49,
                             action: onSmartCompose
                         )
@@ -57,6 +58,7 @@ struct BottomControlsView: View {
                             SmartComposeButtonView(
                                 isActive: cameraController.isSmartComposeActive,
                                 isProcessing: cameraController.isSmartComposeProcessing,
+                                isEnabled: !cameraController.isRecording,
                                 action: onSmartCompose
                             )
                             TemplateToggleButtonView(action: onToggleBottomPanel)
@@ -82,6 +84,7 @@ struct BottomControlsView: View {
 private struct SmartComposeButtonView: View {
     let isActive: Bool
     let isProcessing: Bool
+    let isEnabled: Bool
     var size: CGFloat = 38
     let action: () -> Void
 
@@ -98,5 +101,6 @@ private struct SmartComposeButtonView: View {
         }
         .opacity(isProcessing ? 0.95 : 1.0)
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
     }
 }

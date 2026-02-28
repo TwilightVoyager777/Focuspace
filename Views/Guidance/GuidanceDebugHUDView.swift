@@ -21,17 +21,17 @@ struct GuidanceDebugHUDView: View {
     var uiDy: CGFloat?
 
     private var templateName: String {
-        selectedTemplate ?? "无"
+        selectedTemplate ?? "None"
     }
 
     private var modeName: String {
         switch guidanceUIMode {
         case .moving:
-            return "移动点"
+            return "Moving Dot"
         case .arrow:
-            return "箭头"
+            return "Arrow"
         case .arrowScope:
-            return "箭头(新准心)"
+            return "Arrow (Scope)"
         }
     }
 
@@ -41,7 +41,7 @@ struct GuidanceDebugHUDView: View {
 
     private func fmtPoint(_ point: CGPoint?) -> String {
         guard let point else {
-            return "无"
+            return "None"
         }
         return "(\(fmt(point.x)), \(fmt(point.y)))"
     }
@@ -51,7 +51,7 @@ struct GuidanceDebugHUDView: View {
     }
 
     private func boolText(_ value: Bool) -> String {
-        value ? "是" : "否"
+        value ? "Yes" : "No"
     }
 
     private func sign(_ value: CGFloat, epsilon: CGFloat = 0.0001) -> Int {
@@ -75,11 +75,11 @@ struct GuidanceDebugHUDView: View {
             let dy = subject.y - userAnchor.y
             return sqrt(dx * dx + dy * dy)
         }()
-        let anchorMode = userAnchorNormalized == nil ? "自动锚点" : "点按锚点"
+        let anchorMode = userAnchorNormalized == nil ? "Auto Anchor" : "Tap Anchor"
         let subjectX = debugInfo.subjectPoint?.x
         let targetX = debugInfo.targetPoint?.x
         let xCheckText: String = {
-            guard let subjectX, let targetX else { return "X方向校验: 无数据" }
+            guard let subjectX, let targetX else { return "X Check: No Data" }
             let expectedTemplateDx = targetX - subjectX
             let expectedTemplateSign = sign(expectedTemplateDx)
             let actualTemplateSign = sign(debugInfo.gTemplate.width)
@@ -87,46 +87,46 @@ struct GuidanceDebugHUDView: View {
             let passTemplate = expectedTemplateSign == 0 || actualTemplateSign == expectedTemplateSign
             let passUi = expectedTemplateSign == 0 || actualUiSign == -expectedTemplateSign
             let pass = passTemplate && passUi
-            let side = subjectX >= 0.5 ? "主体在右(x>=0.5)" : "主体在左(x<0.5)"
-            return "X方向校验: \(pass ? "通过" : "失败") | \(side)"
+            let side = subjectX >= 0.5 ? "Subject on Right (x>=0.5)" : "Subject on Left (x<0.5)"
+            return "X Check: \(pass ? "Pass" : "Fail") | \(side)"
         }()
 
         VStack(alignment: .leading, spacing: 4) {
-            Text("模板ID: \(templateName)")
-            Text("模板类型: \(debugInfo.templateType)")
-            Text("引导模式: \(modeName)")
+            Text("Template ID: \(templateName)")
+            Text("Template Type: \(debugInfo.templateType)")
+            Text("Guidance Mode: \(modeName)")
             if let subject {
-                Text("主体坐标: (\(fmt(subject.x)), \(fmt(subject.y)))")
+                Text("Subject Position: (\(fmt(subject.x)), \(fmt(subject.y)))")
                 // Text("主体到中心偏移: ...")
                 // Text("主体到中心距离: ...")
             } else {
-                Text("主体状态: 丢失")
+                Text("Subject Status: Lost")
             }
-            Text("跟踪置信度: \(String(format: "%.3f", subjectTrackScore))")
-            Text("是否跟踪丢失: \(boolText(subjectIsLost))")
-            Text("锚点模式: \(anchorMode)")
-            Text("自动锚点: \(fmtPoint(autoFocusAnchorNormalized))")
-            Text("点按锚点: \(fmtPoint(userAnchorNormalized))")
-            Text("有效锚点: \(fmtPoint(effectiveAnchorNormalized))")
+            Text("Tracking Confidence: \(String(format: "%.3f", subjectTrackScore))")
+            Text("Tracking Lost: \(boolText(subjectIsLost))")
+            Text("Anchor Mode: \(anchorMode)")
+            Text("Auto Anchor: \(fmtPoint(autoFocusAnchorNormalized))")
+            Text("Tap Anchor: \(fmtPoint(userAnchorNormalized))")
+            Text("Effective Anchor: \(fmtPoint(effectiveAnchorNormalized))")
             if let tapVisionDistance {
-                Text("点按->跟踪距离: \(fmt(tapVisionDistance))")
+                Text("Tap to Track Distance: \(fmt(tapVisionDistance))")
             }
-            Text("规则输入主体点: \(fmtPoint(debugInfo.subjectPoint))")
-            Text("主体来源: \(debugInfo.subjectSource)")
-            Text("目标点: \(fmtPoint(debugInfo.targetPoint))")
-            Text("模板引导向量 g_template: \(fmtSize(debugInfo.gTemplate))")
+            Text("Rule Input Subject: \(fmtPoint(debugInfo.subjectPoint))")
+            Text("Subject Source: \(debugInfo.subjectSource)")
+            Text("Target Point: \(fmtPoint(debugInfo.targetPoint))")
+            Text("Template Vector g_template: \(fmtSize(debugInfo.gTemplate))")
             // Text("原始向量 raw(dx,dy): (\(fmt(rawDx)), \(fmt(rawDy)))")
             // Text("原始强度 rawStrength: \(fmt(rawStrength))")
             // Text("原始置信度 rawConfidence: \(fmt(rawConfidence))")
             // Text("稳定后向量 g_stable: \(fmtSize(CGSize(width: stableDx, height: stableDy)))")
-            Text("UI向量 g_ui: \(fmtSize(gUi))")
+            Text("UI Vector g_ui: \(fmtSize(gUi))")
             Text(xCheckText)
             if guidanceUIMode == .arrow || guidanceUIMode == .arrowScope {
                 // Text("箭头起点(px): ...")
-                Text("箭头终点(px): (\(fmt(arrowEnd.x)), \(fmt(arrowEnd.y)))")
-                Text("点位偏移(px): \(fmtSize(dotOffsetPx))")
+                Text("Arrow End (px): (\(fmt(arrowEnd.x)), \(fmt(arrowEnd.y)))")
+                Text("Dot Offset (px): \(fmtSize(dotOffsetPx))")
             }
-            Text("保持状态(holding): \(boolText(isHolding))")
+            Text("Holding: \(boolText(isHolding))")
             // Text("误差幅值 errMag: \(fmt(debugInfo.errMag))")
         }
         .font(.system(size: 12, weight: .regular, design: .monospaced))

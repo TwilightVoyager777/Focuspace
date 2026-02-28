@@ -40,6 +40,7 @@ struct TopBarView: View {
                             usePadPortraitLayout: useLargeControls,
                             useVerticalLayout: true,
                             useSymbolLabels: true,
+                            isLocked: cameraController.isRecording,
                             onSelect: { mode in
                                 cameraController.setCaptureMode(mode)
                             }
@@ -95,6 +96,7 @@ struct TopBarView: View {
                         SegmentedModeView(
                             captureMode: cameraController.captureMode,
                             usePadPortraitLayout: useLargeControls,
+                            isLocked: cameraController.isRecording,
                             onSelect: { mode in
                                 cameraController.setCaptureMode(mode)
                             }
@@ -132,6 +134,7 @@ struct SegmentedModeView: View {
     let usePadPortraitLayout: Bool
     var useVerticalLayout: Bool = false
     var useSymbolLabels: Bool = false
+    var isLocked: Bool = false
     let onSelect: (CameraSessionController.CaptureMode) -> Void
 
     var body: some View {
@@ -230,6 +233,8 @@ struct SegmentedModeView: View {
                 .cornerRadius(segmentCornerRadius)
         }
         .buttonStyle(.plain)
+        .disabled(isLocked)
+        .opacity(isLocked ? 0.6 : 1.0)
     }
 }
 

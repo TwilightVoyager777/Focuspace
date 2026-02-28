@@ -5,11 +5,6 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var debugSettings: DebugSettings
 
-    @State private var simpleMode: Bool = false
-    @State private var stabilization: Bool = true
-    @State private var level: Bool = true
-    @State private var saveHint: Bool = true
-
     var body: some View {
         ZStack {
             Color.black
@@ -20,12 +15,7 @@ struct SettingsView: View {
                     header
 
                     SectionCard(title: "Capture") {
-                        ToggleRow(icon: "camera", title: "Simple Mode", isOn: $simpleMode)
-                        ToggleRow(icon: "camera.on.rectangle", title: "Stabilization", isOn: $stabilization)
                         ToggleRow(icon: "square.grid.3x3", title: "Preview Grid", isOn: $debugSettings.showGridOverlay)
-                        ToggleRow(icon: "ruler", title: "Level Indicator", isOn: $level)
-                        ToggleRow(icon: "square.and.arrow.down", title: "Storage Warning", isOn: $saveHint)
-                        InfoRow(icon: "mappin.and.ellipse", title: "Save Location for Recordings", trailing: "Grant Access")
                     }
 
                     SectionTitle(text: "Creative")
@@ -45,16 +35,11 @@ struct SettingsView: View {
                         GuidanceModeRow(title: "Guidance UI", selection: $debugSettings.guidanceUIMode)
                     }
 
-                    SectionTitle(text: "Performance")
-                    CardRow(title: "Performance Settings", icon: "speedometer")
-                    CardRow(title: "Recording Mode", icon: "bubble.left.and.bubble.right", trailing: "Images Only")
-
-                    SectionTitle(text: "General")
-
-                    CardRow(title: "Clear Cache", icon: "trash", trailing: "51.38MB")
-                    CardRow(title: "About", icon: "info.circle")
-                    CardRow(title: "FAQ", icon: "questionmark.circle")
-                    CardRow(title: "Feedback", icon: "envelope")
+                    SectionCard(title: "Foundation Models") {
+                        InfoTextRow(
+                            text: "Foundation Models may run with limited capability in Swift Playgrounds, so some AI features can only operate in a reduced mode. For the full intelligent composition experience, open this project in Xcode and run it on a supported device."
+                        )
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 6)
@@ -185,9 +170,9 @@ struct GuidanceModeRow: View {
             Spacer()
 
             Picker("Guidance UI", selection: $selection) {
+                Text("Scope").tag(DebugSettings.GuidanceUIMode.arrowScope)
                 Text("Moving").tag(DebugSettings.GuidanceUIMode.moving)
                 Text("Arrow").tag(DebugSettings.GuidanceUIMode.arrow)
-                Text("Scope").tag(DebugSettings.GuidanceUIMode.arrowScope)
             }
             .pickerStyle(.segmented)
             .frame(width: 230)
@@ -205,30 +190,18 @@ struct GuidanceModeRow: View {
     }
 }
 
-struct InfoRow: View {
-    let icon: String
-    let title: String
-    let trailing: String
+struct InfoTextRow: View {
+    let text: String
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.white.opacity(0.85))
-                .frame(width: 22)
-
-            Text(title)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.white)
-
-            Spacer()
-
-            Text(trailing)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(Color.green.opacity(0.9))
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        Text(text)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundColor(.white.opacity(0.82))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .multilineTextAlignment(.leading)
+            .lineSpacing(2)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
     }
 }
 

@@ -27,19 +27,13 @@ let package = Package(
                 .phone
             ],
             supportedInterfaceOrientations: [
-                .portrait,
+                .portrait(.when(deviceFamilies: [.phone])),
                 .landscapeRight,
-                .landscapeLeft,
-                .portraitUpsideDown(.when(deviceFamilies: [.pad]))
+                .landscapeLeft
             ],
             capabilities: [
-                .camera(purposeString: "Need camera"),
-                .photoLibrary(purposeString: "Need Photo Library"),
-                .fileAccess(.userSelectedFiles, mode: .readWrite),
-                .fileAccess(.downloadsFolder, mode: .readWrite),
-                .fileAccess(.pictureFolder, mode: .readWrite),
-                .fileAccess(.musicFolder, mode: .readWrite),
-                .fileAccess(.moviesFolder, mode: .readWrite)
+                .camera(purposeString: "Use the camera to compose and capture photos and videos."),
+                .photoLibrary(purposeString: "Export captured photos and videos to your Photos library.")
             ],
             appCategory: .photography
         )

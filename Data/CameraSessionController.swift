@@ -2,7 +2,6 @@
 import CoreImage
 import CoreVideo
 import Foundation
-import Photos
 import QuartzCore
 import SwiftUI
 import UIKit
@@ -85,41 +84,15 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     @Published private(set) var isSmartComposeActive: Bool = false
     @Published private(set) var isSmartComposeProcessing: Bool = false
 
-    private let templateRuleEngine = TemplateRuleEngine()
-    private var symmetryStabilizer = GuidanceStabilizer2D()
+    private let frameGuidanceCoordinator = FrameGuidanceCoordinator()
     private var subjectTracker = SubjectTrackerNCC()
     private var visionTracker = VisionObjectTracker()
+    private var faceSubjectAnalyzer = FaceSubjectAnalyzer()
     private let aiCoachCoordinator = AICoachCoordinator()
     private var latestSampleBuffer: CMSampleBuffer? = nil
     private let subjectTrackingQueue: DispatchQueue = DispatchQueue(label: "camera.subject.tracking.queue")
-    private var lastReliableSubjectCenter: CGPoint? = nil
-    private var lastReliableSubjectConfidence: Float = 0
-    private var lastReliableSubjectTimestamp: CFTimeInterval = 0
-    private var consecutiveTrackerLostFrames: Int = 0
-    private var trackerReacquireNextAllowedTime: CFTimeInterval = 0
-    private let trackerLossGraceWindow: CFTimeInterval = 0.9
-    private let trackerReacquireInterval: CFTimeInterval = 0.45
-    private let trackerLostFramesBeforeReacquire: Int = 4
-    private let trackerReliableConfidenceFloor: Float = 0.18
-    private struct SmartComposeState {
-        var isActive: Bool = false
-        var isProcessing: Bool = false
-        var targetTemplateID: String? = nil
-        var targetUIZoom: CGFloat = 1.0
-        var alignedFrames: Int = 0
-        var startTime: CFTimeInterval = 0
-        var lastZoomAdjustTime: CFTimeInterval = 0
-        var requestID: UUID? = nil
-    }
-    private let smartComposeStateQueue: DispatchQueue = DispatchQueue(label: "camera.smart.compose.state.queue")
-    private var smartComposeState = SmartComposeState()
-    private let smartComposeMinAlignedFrames: Int = 4
-    private let smartComposeZoomStep: CGFloat = 0.045
-    private let smartComposeMinZoomStep: CGFloat = 0.007
-    private let smartComposeZoomAdjustInterval: CFTimeInterval = 0.05
-    private let smartComposeMaxDuration: CFTimeInterval = 8.0
-    private let smartComposeMinZoomIncrease: CGFloat = 0.18
-    private let smartComposeMinProcessingDuration: CFTimeInterval = 1.25
+    private let trackingResilienceController = TrackingResilienceController()
+    private let smartComposeController = SmartComposeStateController()
     private let aiCoachInterval: CFTimeInterval = 0.7
     private var aiCoachNextAllowedTime: CFTimeInterval = 0
     private var aiCoachInFlight: Bool = false
@@ -146,11 +119,9 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     private let sessionQueueKey: DispatchSpecificKey<Void> = DispatchSpecificKey<Void>()
     private var isConfigured: Bool = false
     private let mediaLibrary: LocalMediaLibrary
+    private let recordingStateController = RecordingStateController()
     private var currentVideoInput: AVCaptureDeviceInput? = nil
-    private var currentAudioInput: AVCaptureDeviceInput? = nil
     private var currentPosition: AVCaptureDevice.Position = .back
-    private var pendingRecordingID: UUID? = nil
-    private var recordingTimer: Timer? = nil
     private let photoCropStateQueue: DispatchQueue = DispatchQueue(label: "camera.photo.crop.state.queue")
     private var pendingPhotoCropRectByID: [Int64: CGRect] = [:]
 
@@ -163,15 +134,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         sessionQueue.setSpecific(key: sessionQueueKey, value: ())
     }
 
-    private struct FilterSettings {
-        var sharpness: Double
-        var contrast: Double
-        var saturation: Double
-        var colorOff: Bool
-    }
-
-    private let filterSettingsQueue: DispatchQueue = DispatchQueue(label: "camera.filter.settings.queue")
-    private var filterSettings = FilterSettings(sharpness: 0.0, contrast: 1.0, saturation: 1.0, colorOff: false)
+    private let filterController = CameraFilterController()
     private var hdrEnabled: Bool = false
 
     var exposedISORange: ClosedRange<Float>? {
@@ -224,12 +187,13 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         }
     }
 
-    private func updateFilterSettings(_ update: @escaping @Sendable (inout FilterSettings) -> Void) {
-        filterSettingsQueue.async { [weak self] in
+    private func currentFilterSettings() -> CameraFilterSettings {
+        filterController.snapshot()
+    }
+
+    private func updateFilterSettings(_ update: @escaping @Sendable (inout CameraFilterSettings) -> Void) {
+        filterController.update(update) { [weak self] isActive in
             guard let self else { return }
-            update(&self.filterSettings)
-            let settings = self.filterSettings
-            let isActive = self.isFilterActive(settings)
             Task { @MainActor in
                 self.isFilterPreviewActive = isActive
                 if !isActive {
@@ -239,26 +203,8 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         }
     }
 
-    private func currentFilterSettings() -> FilterSettings {
-        filterSettingsQueue.sync {
-            filterSettings
-        }
-    }
-
-    private func isFilterActive(_ settings: FilterSettings) -> Bool {
-        if settings.colorOff {
-            return true
-        }
-        if settings.sharpness > 0.001 {
-            return true
-        }
-        if abs(settings.contrast - 1.0) > 0.01 {
-            return true
-        }
-        if abs(settings.saturation - 1.0) > 0.01 {
-            return true
-        }
-        return false
+    private func isFilterActive(_ settings: CameraFilterSettings) -> Bool {
+        CameraFilterController.isActive(settings)
     }
 
     func currentISOValue() -> Float? {
@@ -427,24 +373,52 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
     func stopSession() {
         sessionQueue.async { [weak self] in
-            guard let self, self.session.isRunning else { return }
+            guard let self else { return }
+            if self.movieOutput.isRecording {
+                self.movieOutput.stopRecording()
+            }
+            guard self.session.isRunning else { return }
             self.session.stopRunning()
         }
     }
 
     func setCaptureMode(_ mode: CaptureMode) {
-        setCaptureModeOnMain(mode)
-        beginModeSwitchingAnimation()
-        updateSessionPreset(for: mode)
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            guard self.readCaptureMode() != mode else { return }
+            guard !self.movieOutput.isRecording else {
+                self.setCaptureResult(success: false, message: "Stop recording before switching modes")
+                return
+            }
+
+            self.beginModeSwitchingAnimation()
+            defer {
+                self.finishModeSwitchingAnimation()
+            }
+
+            if self.isConfigured {
+                let preset: AVCaptureSession.Preset = (mode == .video) ? .high : .photo
+                guard self.session.canSetSessionPreset(preset) else { return }
+
+                self.session.beginConfiguration()
+                self.session.sessionPreset = preset
+                self.updateOutputsForMode(mode)
+                self.session.commitConfiguration()
+                self.configureMovieOutputConnection()
+                self.configureVideoDataOutputConnection()
+            }
+
+            self.setCaptureModeOnMain(mode)
+        }
     }
 
     func setSelectedTemplate(_ id: String?) {
-        if let id, !TemplateType.isSupportedTemplateID(id) {
+        if let id, !CompositionTemplateType.isSupportedTemplateID(id) {
             showTemplateSupportMessage(for: id)
             return
         }
 
-        let resolvedID = TemplateType.canonicalID(for: id)
+        let resolvedID = CompositionTemplateType.canonicalID(for: id)
         clearTemplateSupportMessage()
         DispatchQueue.main.async {
             self.selectedTemplateID = resolvedID
@@ -465,12 +439,13 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             }
         }
         if resolvedID == nil {
-            symmetryStabilizer.reset()
+            frameGuidanceCoordinator.reset()
             resetTrackingResilienceState()
             stopSmartCompose()
             subjectTrackingQueue.async {
                 self.subjectTracker.reset()
                 self.visionTracker.reset()
+                self.faceSubjectAnalyzer.reset()
             }
         } else {
             resetTrackingResilienceState()
@@ -484,6 +459,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 let autoAnchor = self.currentAutoFocusAnchorNormalized
                 self.subjectTrackingQueue.async { [weak self] in
                     guard let self else { return }
+                    self.faceSubjectAnalyzer.reset()
                     self.visionTracker.startTracking(tapPointNormalized: autoAnchor)
                     if let sampleBuffer = self.latestSampleBuffer,
                        let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
@@ -500,7 +476,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     }
 
     func isTemplateSupported(_ id: String) -> Bool {
-        TemplateType.isSupportedTemplateID(id)
+        CompositionTemplateType.isSupportedTemplateID(id)
     }
 
     func notifyUnsupportedTemplateSelection(_ id: String) {
@@ -508,17 +484,13 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     }
 
     func triggerSmartComposeRecommendation(_ applyTemplate: @MainActor @Sendable @escaping (String?) -> Void) {
+        guard !isRecording else {
+            setCaptureResult(success: false, message: "Stop recording before using Smart Compose")
+            return
+        }
         let requestID = UUID()
         let processingStart = CACurrentMediaTime()
-        let shouldStart = smartComposeStateQueue.sync { () -> Bool in
-            if smartComposeState.isProcessing {
-                return false
-            }
-            smartComposeState.isProcessing = true
-            smartComposeState.isActive = false
-            smartComposeState.requestID = requestID
-            return true
-        }
+        let shouldStart = smartComposeController.beginProcessing(requestID: requestID)
         guard shouldStart else { return }
         publishSmartComposeState()
 
@@ -526,7 +498,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         Task { [weak self] in
             guard let self else { return }
             let advice = await self.aiCoachCoordinator.evaluate(snapshot: snapshot)
-            let resolvedTemplate = self.resolveSmartComposeTemplateDecision(
+            let resolvedTemplate = SmartComposeRecommendationResolver.resolveTemplateDecision(
                 adviceTemplateID: advice.suggestedTemplateID,
                 adviceReason: advice.suggestedTemplateReason,
                 snapshot: snapshot
@@ -534,18 +506,17 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             let finalTemplate = resolvedTemplate.id
             let finalTemplateReason = resolvedTemplate.reason
             let currentZoom = self.readCurrentUIZoomEstimate()
-            let targetZoom = self.recommendedSmartComposeZoom(
+            let targetZoom = SmartComposeRecommendationResolver.recommendedZoom(
                 templateID: finalTemplate,
                 score: advice.score,
-                currentZoom: currentZoom
+                currentZoom: currentZoom,
+                minimumZoomIncrease: self.smartComposeController.minimumZoomIncrease
             )
             let elapsed = CACurrentMediaTime() - processingStart
-            let remainingDelay = max(0, self.smartComposeMinProcessingDuration - elapsed)
+            let remainingDelay = max(0, self.smartComposeController.minimumProcessingDuration - elapsed)
 
             DispatchQueue.main.asyncAfter(deadline: .now() + remainingDelay) {
-                let isCurrentRequest = self.smartComposeStateQueue.sync { () -> Bool in
-                    self.smartComposeState.isProcessing && self.smartComposeState.requestID == requestID
-                }
+                let isCurrentRequest = self.smartComposeController.isCurrentProcessingRequest(requestID)
                 guard isCurrentRequest else { return }
 
                 let now = CACurrentMediaTime()
@@ -561,17 +532,12 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                     self.aiCoachAvailabilityMessage = nil
                 }
                 applyTemplate(finalTemplate)
-                self.smartComposeStateQueue.sync {
-                    guard self.smartComposeState.requestID == requestID else { return }
-                    self.smartComposeState.isProcessing = false
-                    self.smartComposeState.isActive = true
-                    self.smartComposeState.targetTemplateID = finalTemplate
-                    self.smartComposeState.targetUIZoom = targetZoom
-                    self.smartComposeState.alignedFrames = 0
-                    self.smartComposeState.startTime = now
-                    self.smartComposeState.lastZoomAdjustTime = 0
-                    self.smartComposeState.requestID = nil
-                }
+                guard self.smartComposeController.activate(
+                    requestID: requestID,
+                    templateID: finalTemplate,
+                    targetZoom: targetZoom,
+                    now: now
+                ) else { return }
                 self.publishSmartComposeState()
             }
         }
@@ -636,66 +602,29 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            guard self.readCaptureMode() == .video else { return }
             guard !self.movieOutput.isRecording else { return }
             guard self.movieOutput.connection(with: .video) != nil else {
                 self.setCaptureResult(success: false, message: "Video connection unavailable")
                 return
             }
+            let outputURL = self.prepareRecordingOutputURL()
             self.configureMovieOutputConnection()
-
-            self.requestMicrophoneAccessIfNeeded { granted in
-                self.sessionQueue.async { [weak self] in
-                    guard let self else { return }
-
-                    if granted {
-                        self.ensureAudioInput()
-                    } else {
-                        self.removeAudioInputIfNeeded()
-                    }
-
-                    let id = UUID()
-                    Task { [weak self] in
-                        guard let self else { return }
-                        let outputURL = await self.makeVideoOutputURL(for: id)
-                        self.sessionQueue.async { [weak self] in
-                            guard let self else { return }
-                            guard let outputURL else {
-                                self.setCaptureResult(success: false, message: "Video output error")
-                                return
-                            }
-
-                            if FileManager.default.fileExists(atPath: outputURL.path) {
-                                try? FileManager.default.removeItem(at: outputURL)
-                            }
-
-                            self.pendingRecordingID = id
-                            self.movieOutput.startRecording(to: outputURL, recordingDelegate: self)
-                            self.setRecording(true)
-                        }
-                    }
-                }
+            if FileManager.default.fileExists(atPath: outputURL.path) {
+                try? FileManager.default.removeItem(at: outputURL)
             }
+            self.movieOutput.startRecording(to: outputURL, recordingDelegate: self)
+            self.beginRecordingUIState()
         }
     }
 
     func toggleRecording() {
         guard captureMode == .video else { return }
 
-        sessionQueue.async { [weak self] in
-            guard let self else { return }
-            if self.movieOutput.isRecording {
-                self.movieOutput.stopRecording()
-            } else {
-                let outputURL = self.makeVideoURL()
-                self.configureMovieOutputConnection()
-                self.movieOutput.startRecording(to: outputURL, recordingDelegate: self)
-
-                DispatchQueue.main.async {
-                    self.isRecording = true
-                    self.recordingDuration = 0
-                    self.startRecordingTimer()
-                }
-            }
+        if isRecording {
+            stopRecording()
+        } else {
+            startRecording()
         }
     }
 
@@ -709,20 +638,26 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     }
 
     func switchCamera() {
-        DispatchQueue.main.async {
-            self.switchSnapshot = self.snapshotProvider?()
-            withAnimation(.easeOut(duration: 0.12)) {
-                self.isCameraSwitching = true
-                self.previewFreeze = true
-            }
-        }
-
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            guard !self.movieOutput.isRecording else {
+                self.setCaptureResult(success: false, message: "Stop recording before switching cameras")
+                return
+            }
             guard let currentInput = self.currentVideoInput else { return }
 
             let newPosition: AVCaptureDevice.Position = self.currentPosition == .back ? .front : .back
             guard let newDevice = self.defaultCameraDevice(for: newPosition) else { return }
+            let snapshot = DispatchQueue.main.sync {
+                self.snapshotProvider?()
+            }
+            DispatchQueue.main.async {
+                self.switchSnapshot = snapshot
+                withAnimation(.easeOut(duration: 0.12)) {
+                    self.isCameraSwitching = true
+                    self.previewFreeze = true
+                }
+            }
 
             do {
                 let newInput = try AVCaptureDeviceInput(device: newDevice)
@@ -802,12 +737,11 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             self.currentAutoFocusAnchorNormalized = point
             self.userSubjectAnchorNormalized = point
             self.isUserAnchorActive = true
-            self.userAnchorSetTime = CACurrentMediaTime()
+            let now = CACurrentMediaTime()
+            self.userAnchorSetTime = now
             self.updateEffectiveAnchor()
             self.resetTrackingResilienceState()
-            self.lastReliableSubjectCenter = point
-            self.lastReliableSubjectConfidence = 1.0
-            self.lastReliableSubjectTimestamp = CACurrentMediaTime()
+            self.trackingResilienceController.seed(at: point, confidence: 1.0, now: now)
 
             self.subjectTrackingQueue.async { [weak self] in
                 guard let self else { return }
@@ -1024,7 +958,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     func finalizeZoom(_ uiZoom: CGFloat) {
         sessionQueue.async { [weak self] in
             guard let self else { return }
-
+            guard !self.movieOutput.isRecording else { return }
             guard self.currentPosition == .back else { return }
 
             let ultraWide = AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back)
@@ -1050,6 +984,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     }
 
     private func switchBackLens(to device: AVCaptureDevice, lens: BackLens) {
+        guard !movieOutput.isRecording else { return }
         guard let currentInput = currentVideoInput else { return }
 
         do {
@@ -1230,51 +1165,6 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         }
     }
 
-    private func ensureAudioInput() {
-        guard currentAudioInput == nil else { return }
-        guard let audioDevice = AVCaptureDevice.default(for: .audio) else { return }
-
-        do {
-            let audioInput = try AVCaptureDeviceInput(device: audioDevice)
-            session.beginConfiguration()
-            if session.canAddInput(audioInput) {
-                session.addInput(audioInput)
-                currentAudioInput = audioInput
-            }
-            session.commitConfiguration()
-        } catch {
-            session.commitConfiguration()
-        }
-    }
-
-    private func removeAudioInputIfNeeded() {
-        guard let audioInput = currentAudioInput else { return }
-        session.beginConfiguration()
-        session.removeInput(audioInput)
-        session.commitConfiguration()
-        currentAudioInput = nil
-    }
-
-    private func makeVideoOutputURL(for id: UUID) async -> URL? {
-        await MainActor.run {
-            mediaLibrary.makeVideoFileURL(id: id)
-        }
-    }
-
-    private func requestMicrophoneAccessIfNeeded(_ completion: @escaping (Bool) -> Void) {
-        let status = AVCaptureDevice.authorizationStatus(for: .audio)
-        switch status {
-        case .authorized:
-            completion(true)
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                completion(granted)
-            }
-        default:
-            completion(false)
-        }
-    }
-
     // 读取当前状态（避免跨线程直接访问 @Published）
     private func readState() -> State {
         if Thread.isMainThread {
@@ -1443,35 +1333,20 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     }
 
     private func resetTrackingResilienceState() {
-        lastReliableSubjectCenter = nil
-        lastReliableSubjectConfidence = 0
-        lastReliableSubjectTimestamp = 0
-        consecutiveTrackerLostFrames = 0
-        trackerReacquireNextAllowedTime = 0
+        trackingResilienceController.reset()
     }
 
     private func publishSmartComposeState() {
-        let snapshot = smartComposeStateQueue.sync {
-            (smartComposeState.isActive, smartComposeState.isProcessing)
-        }
+        let snapshot = smartComposeController.snapshot()
         DispatchQueue.main.async {
-            self.isSmartComposeActive = snapshot.0
-            self.isSmartComposeProcessing = snapshot.1
+            self.isSmartComposeActive = snapshot.isActive
+            self.isSmartComposeProcessing = snapshot.isProcessing
         }
     }
 
     private func stopSmartCompose() {
-        smartComposeStateQueue.sync {
-            smartComposeState = SmartComposeState()
-        }
+        smartComposeController.reset()
         publishSmartComposeState()
-    }
-
-    private func clampNormalizedPoint(_ point: CGPoint) -> CGPoint {
-        CGPoint(
-            x: max(0, min(1, point.x)),
-            y: max(0, min(1, point.y))
-        )
     }
 
     private func updateTrackingResilience(
@@ -1481,41 +1356,16 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         now: CFTimeInterval,
         fallbackAnchor: CGPoint
     ) {
-        if trackedIsLost == false, let center = trackedCenter {
-            if trackedConfidence >= trackerReliableConfidenceFloor {
-                lastReliableSubjectCenter = center
-                lastReliableSubjectConfidence = trackedConfidence
-                lastReliableSubjectTimestamp = now
-            } else if lastReliableSubjectCenter == nil {
-                // First lock: keep a seed point even with low confidence.
-                lastReliableSubjectCenter = center
-                lastReliableSubjectConfidence = max(trackedConfidence, trackerReliableConfidenceFloor)
-                lastReliableSubjectTimestamp = now
+        if let reacquirePoint = trackingResilienceController.update(
+            trackedCenter: &trackedCenter,
+            trackedConfidence: &trackedConfidence,
+            trackedIsLost: &trackedIsLost,
+            now: now,
+            fallbackAnchor: fallbackAnchor
+        ) {
+            subjectTrackingQueue.async { [weak self] in
+                self?.visionTracker.startTracking(tapPointNormalized: reacquirePoint)
             }
-            consecutiveTrackerLostFrames = 0
-            return
-        }
-
-        consecutiveTrackerLostFrames += 1
-        let recentFallback: CGPoint? = {
-            guard let last = lastReliableSubjectCenter else { return nil }
-            guard (now - lastReliableSubjectTimestamp) <= trackerLossGraceWindow else { return nil }
-            return last
-        }()
-
-        if let recentFallback {
-            trackedCenter = recentFallback
-            trackedConfidence = max(0.12, lastReliableSubjectConfidence * 0.65)
-            trackedIsLost = false
-        }
-
-        guard consecutiveTrackerLostFrames >= trackerLostFramesBeforeReacquire else { return }
-        guard now >= trackerReacquireNextAllowedTime else { return }
-        trackerReacquireNextAllowedTime = now + trackerReacquireInterval
-
-        let reacquirePoint = clampNormalizedPoint(recentFallback ?? fallbackAnchor)
-        subjectTrackingQueue.async { [weak self] in
-            self?.visionTracker.startTracking(tapPointNormalized: reacquirePoint)
         }
     }
 
@@ -1536,6 +1386,24 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 (stableSymmetryDx, stableSymmetryDy, rawSymmetryConfidence, subjectIsLost)
             }
         }()
+        let overlayHints: (diagonalType: DiagonalType?, negativeSpaceZone: CGRect?) = {
+            if Thread.isMainThread {
+                return (overlayDiagonalType, overlayNegativeSpaceZone)
+            }
+            return DispatchQueue.main.sync {
+                (overlayDiagonalType, overlayNegativeSpaceZone)
+            }
+        }()
+        let structuralTags = AICoachStructuralTagBuilder.build(input: AICoachStructuralTagInput(
+            templateID: templateID,
+            subjectPoint: subject,
+            targetPoint: targetPoint,
+            stableDx: stable.dx,
+            stableDy: stable.dy,
+            confidence: stable.confidence,
+            diagonalType: overlayHints.diagonalType,
+            negativeSpaceZone: overlayHints.negativeSpaceZone
+        ))
         return AICoachFrameSnapshot(
             templateID: templateID,
             subjectX: subject.map { Double($0.x) },
@@ -1545,96 +1413,9 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             stableDx: Double(stable.dx),
             stableDy: Double(stable.dy),
             confidence: Double(stable.confidence),
-            isLost: stable.isLost
+            isLost: stable.isLost,
+            structuralTags: structuralTags
         )
-    }
-
-    private func resolveSmartComposeTemplateDecision(
-        adviceTemplateID: String?,
-        adviceReason: String?,
-        snapshot: AICoachFrameSnapshot
-    ) -> (id: String, reason: String) {
-        if let suggested = TemplateType.canonicalID(for: adviceTemplateID),
-           TemplateType.isSupportedTemplateID(suggested),
-           suggested != "center" {
-            return (suggested, adviceReason ?? "AI selected this template.")
-        }
-
-        if let current = TemplateType.canonicalID(for: snapshot.templateID),
-           TemplateType.isSupportedTemplateID(current),
-           current != "center" {
-            return (current, "Keep the active template for continuity.")
-        }
-
-        if let heuristic = smartComposeHeuristicTemplate(snapshot: snapshot) {
-            return heuristic
-        }
-
-        return ("rule_of_thirds", "Fallback to thirds to avoid center lock.")
-    }
-
-    private func smartComposeHeuristicTemplate(
-        snapshot: AICoachFrameSnapshot
-    ) -> (id: String, reason: String)? {
-        let confidence = CGFloat(max(0, min(1, snapshot.confidence)))
-        let subject: CGPoint? = {
-            guard let x = snapshot.subjectX, let y = snapshot.subjectY else { return nil }
-            return CGPoint(
-                x: CGFloat(max(0, min(1, x))),
-                y: CGFloat(max(0, min(1, y)))
-            )
-        }()
-
-        if snapshot.isLost || confidence < 0.18 {
-            return ("rule_of_thirds", "Tracking weak. Use thirds to recover subject lock.")
-        }
-
-        guard let subject else {
-            return ("rule_of_thirds", "No subject point yet. Start with thirds.")
-        }
-
-        let dx = subject.x - 0.5
-        let dy = subject.y - 0.5
-        let absX = abs(dx)
-        let absY = abs(dy)
-
-        if absX > 0.24, absX > absY + 0.06 {
-            return ("negative_space", "Strong horizontal offset. Leave intentional negative space.")
-        }
-        if absY > 0.24, absY > absX + 0.06 {
-            return ("portrait_headroom", "Strong vertical offset. Balance with portrait headroom.")
-        }
-        if absX > 0.16, absY > 0.16 {
-            return ("diagonals", "Dual-axis offset fits diagonal composition.")
-        }
-        if absX > 0.09 || absY > 0.09 {
-            return ("rule_of_thirds", "Offset subject fits thirds better than center.")
-        }
-        return ("rule_of_thirds", "Balanced scene. Use thirds for intentional framing.")
-    }
-
-    private func recommendedSmartComposeZoom(templateID: String, score: Int, currentZoom: CGFloat) -> CGFloat {
-        let base: CGFloat
-        switch templateID {
-        case "portrait_headroom":
-            base = 1.58
-        case "rule_of_thirds", "golden_spiral":
-            base = 1.36
-        case "center", "symmetry":
-            base = 1.28
-        case "triangle", "layers_fmb":
-            base = 1.30
-        case "leading_lines":
-            base = 1.18
-        case "negative_space", "framing":
-            base = 1.14
-        default:
-            base = 1.26
-        }
-        let scoreRatio = max(0, min(1, CGFloat(score) / 100))
-        let adaptive = base - (1 - scoreRatio) * 0.14
-        let ensuredIncrease = max(adaptive, currentZoom + smartComposeMinZoomIncrease)
-        return max(0.7, min(8.0, ensuredIncrease))
     }
 
     private func readCurrentUIZoomEstimate() -> CGFloat {
@@ -1655,47 +1436,23 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         guidanceConfidence: CGFloat,
         trackedIsLost: Bool
     ) {
-        var shouldStop = false
-        var targetZoom: CGFloat?
-        smartComposeStateQueue.sync {
-            guard smartComposeState.isActive else { return }
-
-            if smartComposeState.startTime > 0, (now - smartComposeState.startTime) > smartComposeMaxDuration {
-                smartComposeState = SmartComposeState()
-                shouldStop = true
-                return
-            }
-
-            if let expectedTemplate = smartComposeState.targetTemplateID,
-               let currentTemplateID,
-               expectedTemplate != currentTemplateID {
-                smartComposeState = SmartComposeState()
-                shouldStop = true
-                return
-            }
-
-            if trackedIsLost || guidanceConfidence < 0.18 {
-                smartComposeState.alignedFrames = max(0, smartComposeState.alignedFrames - 1)
-                return
-            }
-
-            if isHolding {
-                smartComposeState.alignedFrames += 1
-            } else {
-                smartComposeState.alignedFrames = max(0, smartComposeState.alignedFrames - 1)
-            }
-
-            guard smartComposeState.alignedFrames >= smartComposeMinAlignedFrames else { return }
-            guard (now - smartComposeState.lastZoomAdjustTime) >= smartComposeZoomAdjustInterval else { return }
-            smartComposeState.lastZoomAdjustTime = now
-            targetZoom = smartComposeState.targetUIZoom
+        if movieOutput.isRecording {
+            stopSmartCompose()
+            return
         }
+        let decision = smartComposeController.decisionForFrame(
+            now: now,
+            currentTemplateID: currentTemplateID,
+            isHolding: isHolding,
+            guidanceConfidence: guidanceConfidence,
+            trackedIsLost: trackedIsLost
+        )
 
-        if shouldStop {
+        if decision.shouldPublishState {
             publishSmartComposeState()
             return
         }
-        guard let targetZoom else { return }
+        guard let targetZoom = decision.targetZoom else { return }
 
         let currentZoom = readCurrentUIZoomEstimate()
         let delta = targetZoom - currentZoom
@@ -1703,10 +1460,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             stopSmartCompose()
             return
         }
-        let adaptiveStep = max(
-            smartComposeMinZoomStep,
-            min(smartComposeZoomStep, abs(delta) * 0.35)
-        )
+        let adaptiveStep = smartComposeController.adaptiveZoomStep(for: abs(delta))
         let step = delta > 0 ? adaptiveStep : -adaptiveStep
         let nextZoom = currentZoom + step
         setZoomFactorWithinCurrentLens(nextZoom, smooth: true)
@@ -1714,7 +1468,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     }
 
     private func showTemplateSupportMessage(for id: String) {
-        let supported = TemplateType.supportedTemplateIDs.sorted().joined(separator: ", ")
+        let supported = CompositionTemplateType.supportedTemplateIDs.sorted().joined(separator: ", ")
         let message = "Template \(id) is not implemented. Supported: \(supported)"
         let token = UUID()
         templateSupportMessageToken = token
@@ -1742,12 +1496,25 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         stableDy: CGFloat,
         confidence: CGFloat,
         isLost: Bool,
+        diagonalType: DiagonalType?,
+        negativeSpaceZone: CGRect?,
         now: CFTimeInterval
     ) {
         guard now >= aiCoachNextAllowedTime else { return }
         guard !aiCoachInFlight else { return }
         aiCoachInFlight = true
         aiCoachNextAllowedTime = now + aiCoachInterval
+
+        let structuralTags = AICoachStructuralTagBuilder.build(input: AICoachStructuralTagInput(
+            templateID: templateID,
+            subjectPoint: subjectPoint,
+            targetPoint: targetPoint,
+            stableDx: stableDx,
+            stableDy: stableDy,
+            confidence: confidence,
+            diagonalType: diagonalType,
+            negativeSpaceZone: negativeSpaceZone
+        ))
 
         let snapshot = AICoachFrameSnapshot(
             templateID: templateID,
@@ -1758,7 +1525,8 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             stableDx: Double(stableDx),
             stableDy: Double(stableDy),
             confidence: Double(confidence),
-            isLost: isLost
+            isLost: isLost,
+            structuralTags: structuralTags
         )
 
         Task { [weak self] in
@@ -1796,27 +1564,6 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             withAnimation(.easeInOut(duration: 0.18)) {
                 self.isModeSwitching = false
             }
-        }
-    }
-
-    private func updateSessionPreset(for mode: CaptureMode) {
-        sessionQueue.async { [weak self] in
-            guard let self else { return }
-            defer {
-                self.finishModeSwitchingAnimation()
-            }
-            guard self.isConfigured else { return }
-            guard !self.movieOutput.isRecording else { return }
-
-            let preset: AVCaptureSession.Preset = (mode == .video) ? .high : .photo
-            guard self.session.canSetSessionPreset(preset) else { return }
-
-            self.session.beginConfiguration()
-            self.session.sessionPreset = preset
-            self.updateOutputsForMode(mode)
-            self.session.commitConfiguration()
-            self.configureMovieOutputConnection()
-            self.configureVideoDataOutputConnection()
         }
     }
 
@@ -2052,31 +1799,47 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             || abs(rect.height - 1) > epsilon
     }
 
-    private func setRecording(_ value: Bool) {
-        DispatchQueue.main.async {
-            self.isRecording = value
+    private func prepareRecordingOutputURL() -> URL {
+        if Thread.isMainThread {
+            return recordingStateController.prepareOutputURL()
+        }
+        return DispatchQueue.main.sync {
+            recordingStateController.prepareOutputURL()
         }
     }
 
-    private func makeVideoURL() -> URL {
-        let id = UUID()
-        pendingRecordingID = id
-        let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        return directory.appendingPathComponent("\(id.uuidString).mov")
-    }
+    private func beginRecordingUIState() {
+        let applyDuration: (TimeInterval) -> Void = { [weak self] duration in
+            self?.recordingDuration = duration
+        }
 
-    private func startRecordingTimer() {
-        recordingTimer?.invalidate()
-        recordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        let updateState = { [weak self] in
             guard let self else { return }
-            self.recordingDuration += 1
+            self.isRecording = true
+            self.recordingStateController.begin(onDurationChange: applyDuration)
+        }
+
+        if Thread.isMainThread {
+            updateState()
+        } else {
+            DispatchQueue.main.async(execute: updateState)
         }
     }
 
-    private func stopRecordingTimer() {
-        recordingTimer?.invalidate()
-        recordingTimer = nil
-        recordingDuration = 0
+    private func finishRecordingUIState() -> UUID? {
+        let applyDuration: (TimeInterval) -> Void = { [weak self] duration in
+            self?.recordingDuration = duration
+        }
+
+        let updateState = { () -> UUID? in
+            self.isRecording = false
+            return self.recordingStateController.finish(onDurationChange: applyDuration)
+        }
+
+        if Thread.isMainThread {
+            return updateState()
+        }
+        return DispatchQueue.main.sync(execute: updateState)
     }
 
     var recordingDurationText: String {
@@ -2125,11 +1888,12 @@ extension CameraSessionController: AVCapturePhotoCaptureDelegate {
         let applyCrop = needsCropping(cropRect)
         let outputData: Data
         if (applyFilters || applyCrop),
-           let processed = processPhotoData(
+           let processed = CapturedPhotoProcessor.process(
                data,
                settings: settings,
                applyFilters: applyFilters,
-               cropRectNormalized: cropRect
+               cropRectNormalized: applyCrop ? cropRect : nil,
+               ciContext: ciContext
            ) {
             outputData = processed
         } else {
@@ -2149,17 +1913,14 @@ extension CameraSessionController: AVCapturePhotoCaptureDelegate {
 
 extension CameraSessionController: AVCaptureFileOutputRecordingDelegate {
     func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
-        DispatchQueue.main.async {
-            self.isRecording = false
-            self.stopRecordingTimer()
-        }
+        let finishedRecordingID = finishRecordingUIState()
 
         if let error {
             setCaptureResult(success: false, message: error.localizedDescription)
             return
         }
 
-        guard let id = pendingRecordingID else {
+        guard let id = finishedRecordingID else {
             setCaptureResult(success: false, message: "Save failed")
             return
         }
@@ -2192,63 +1953,18 @@ extension CameraSessionController: AVCaptureFileOutputRecordingDelegate {
         print("Video metadata: natural=\(natural) transform=\(transform) display=\(displaySize)")
     }
 
-    private func processPhotoData(
-        _ data: Data,
-        settings: FilterSettings,
-        applyFilters: Bool,
-        cropRectNormalized: CGRect?
-    ) -> Data? {
-        guard var image = CIImage(data: data, options: [.applyOrientationProperty: true]) else { return nil }
-
-        if applyFilters {
-            let saturation = settings.colorOff ? 0.0 : settings.saturation
-            image = image.applyingFilter(
-                "CIColorControls",
-                parameters: [
-                    kCIInputSaturationKey: saturation,
-                    kCIInputContrastKey: settings.contrast
-                ]
-            )
-
-            image = image.applyingFilter(
-                "CISharpenLuminance",
-                parameters: [
-                    kCIInputSharpnessKey: settings.sharpness
-                ]
-            )
-        }
-
-        if let cropRect = sanitizeNormalizedRect(cropRectNormalized), needsCropping(cropRect) {
-            image = cropImage(image, toNormalizedRect: cropRect)
-        }
-
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        return ciContext.jpegRepresentation(of: image, colorSpace: colorSpace, options: [:])
-    }
-
-    private func cropImage(_ image: CIImage, toNormalizedRect normalizedRect: CGRect) -> CIImage {
-        let extent = image.extent
-        guard extent.width > 0, extent.height > 0 else { return image }
-
-        // 元数据坐标原点在左上角，CIImage 坐标原点在左下角，需做一次 Y 轴翻转
-        let cropRect = CGRect(
-            x: extent.minX + normalizedRect.minX * extent.width,
-            y: extent.minY + (1.0 - normalizedRect.maxY) * extent.height,
-            width: normalizedRect.width * extent.width,
-            height: normalizedRect.height * extent.height
-        ).integral
-
-        let safeRect = cropRect.intersection(extent)
-        guard !safeRect.isNull, safeRect.width > 0, safeRect.height > 0 else { return image }
-        return image.cropped(to: safeRect)
-    }
 }
 
 extension CameraSessionController: AVCaptureVideoDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        let now = CACurrentMediaTime()
+        let templateID = readSelectedTemplateID()
+        let template = CompositionTemplateType(id: templateID)
+
         var trackedCenter: CGPoint? = nil
         var trackedConfidence: Float = 0
         var trackedIsLost: Bool = true
+        var faceObservation: FaceSubjectObservation? = nil
 
         subjectTrackingQueue.sync {
             self.latestSampleBuffer = sampleBuffer
@@ -2257,6 +1973,9 @@ extension CameraSessionController: AVCaptureVideoDataOutputSampleBufferDelegate 
             trackedCenter = result.center
             trackedConfidence = result.confidence
             trackedIsLost = result.isLost
+            if template == .portraitHeadroom {
+                faceObservation = self.faceSubjectAnalyzer.update(sampleBuffer: sampleBuffer, now: now)
+            }
         }
 
         sessionQueue.sync {
@@ -2274,7 +1993,6 @@ extension CameraSessionController: AVCaptureVideoDataOutputSampleBufferDelegate 
             }
         }
 
-        let now = CACurrentMediaTime()
         let rawTrackedCenter = trackedCenter
         let rawTrackedConfidence = trackedConfidence
         let rawTrackedIsLost = trackedIsLost
@@ -2311,68 +2029,55 @@ extension CameraSessionController: AVCaptureVideoDataOutputSampleBufferDelegate 
             self.subjectIsLost = trackedIsLostSnapshot
         }
 
-        let templateID = readSelectedTemplateID()
-        let template = TemplateType(id: templateID)
         var aiTemplateID: String? = nil
         var aiTargetPoint: CGPoint? = nil
+        var aiDiagonalType: DiagonalType? = nil
+        var aiNegativeSpaceZone: CGRect? = nil
         var aiStableDx: CGFloat = 0
         var aiStableDy: CGFloat = 0
         var aiConfidence: CGFloat = 0
         var isHoldingForSmartCompose: Bool = true
         if template != .other {
-            let result = templateRuleEngine.compute(
+            let guidance = frameGuidanceCoordinator.evaluate(
                 sampleBuffer: sampleBuffer,
-                anchorNormalized: anchorForCompute,
                 template: template,
+                anchorNormalized: anchorForCompute,
                 subjectCurrentNormalized: trackedCenter,
                 subjectTrackConfidence: trackedConfidence,
                 subjectIsLost: trackedIsLost,
+                faceObservation: faceObservation,
                 userSubjectAnchorNormalized: userAnchorForCompute,
-                autoFocusAnchorNormalized: autoAnchorForCompute
-            )
-            setRawSymmetry(
-                dx: result.guidance.dx,
-                dy: result.guidance.dy,
-                strength: result.guidance.strength,
-                confidence: result.guidance.confidence
-            )
-            setOverlayHints(
-                targetPoint: result.targetPoint,
-                diagonalType: result.diagonalType,
-                negativeSpaceZone: result.negativeSpaceZone
-            )
-            let now = CACurrentMediaTime()
-            let stable = symmetryStabilizer.update(
-                rawDx: result.guidance.dx,
-                rawDy: result.guidance.dy,
-                confidence: result.guidance.confidence,
+                autoFocusAnchorNormalized: autoAnchorForCompute,
                 now: now
             )
-            var stableDx = stable.0
-            var stableDy = stable.1
-            let rawDx = result.guidance.dx
-            let rawDy = result.guidance.dy
-            if abs(rawDx) > 0.01, stableDx * rawDx < 0 {
-                stableDx = rawDx * 0.6
-            }
-            if abs(rawDy) > 0.01, stableDy * rawDy < 0 {
-                stableDy = rawDy * 0.6
-            }
-            setStableSymmetry(
-                dx: stableDx,
-                dy: stableDy,
-                isHolding: symmetryStabilizer.isHolding
+            setRawSymmetry(
+                dx: guidance.rawDx,
+                dy: guidance.rawDy,
+                strength: guidance.rawStrength,
+                confidence: guidance.rawConfidence
             )
-            isHoldingForSmartCompose = symmetryStabilizer.isHolding
-            aiTemplateID = template.canonicalTemplateID
-            aiTargetPoint = result.targetPoint
-            aiStableDx = stableDx
-            aiStableDy = stableDy
-            aiConfidence = result.guidance.confidence
+            setOverlayHints(
+                targetPoint: guidance.targetPoint,
+                diagonalType: guidance.diagonalType,
+                negativeSpaceZone: guidance.negativeSpaceZone
+            )
+            setStableSymmetry(
+                dx: guidance.stableDx,
+                dy: guidance.stableDy,
+                isHolding: guidance.isHolding
+            )
+            isHoldingForSmartCompose = guidance.isHolding
+            aiTemplateID = guidance.canonicalTemplateID
+            aiTargetPoint = guidance.targetPoint
+            aiDiagonalType = guidance.diagonalType
+            aiNegativeSpaceZone = guidance.negativeSpaceZone
+            aiStableDx = guidance.stableDx
+            aiStableDy = guidance.stableDy
+            aiConfidence = guidance.rawConfidence
         } else {
             setRawSymmetry(dx: 0, dy: 0, strength: 0, confidence: 0)
             setOverlayHints(targetPoint: nil, diagonalType: nil, negativeSpaceZone: nil)
-            symmetryStabilizer.reset()
+            frameGuidanceCoordinator.reset()
             setStableSymmetry(dx: 0, dy: 0, isHolding: true)
             isHoldingForSmartCompose = true
         }
@@ -2391,6 +2096,8 @@ extension CameraSessionController: AVCaptureVideoDataOutputSampleBufferDelegate 
             stableDy: aiStableDy,
             confidence: aiConfidence,
             isLost: trackedIsLost,
+            diagonalType: aiDiagonalType,
+            negativeSpaceZone: aiNegativeSpaceZone,
             now: now
         )
 
@@ -2400,406 +2107,14 @@ extension CameraSessionController: AVCaptureVideoDataOutputSampleBufferDelegate 
         let settings = currentFilterSettings()
         guard isFilterActive(settings) else { return }
 
-        var image = CIImage(cvPixelBuffer: pixelBuffer)
-        let saturation = settings.colorOff ? 0.0 : settings.saturation
-
-        image = image.applyingFilter(
-            "CIColorControls",
-            parameters: [
-                kCIInputSaturationKey: saturation,
-                kCIInputContrastKey: settings.contrast
-            ]
-        )
-
-        image = image.applyingFilter(
-            "CISharpenLuminance",
-            parameters: [
-                kCIInputSharpnessKey: settings.sharpness
-            ]
-        )
-
-        guard let cgImage = ciContext.createCGImage(image, from: image.extent) else { return }
+        guard let cgImage = LiveFilterPreviewRenderer.render(
+            pixelBuffer: pixelBuffer,
+            settings: settings,
+            ciContext: ciContext
+        ) else { return }
 
         DispatchQueue.main.async { [weak self] in
             self?.filteredPreviewImage = cgImage
-        }
-    }
-}
-
-// 媒体条目（照片/视频）
-struct MediaItem: Identifiable {
-    enum MediaType {
-        case photo(UIImage)
-        case video(URL)
-    }
-
-    let id: UUID
-    let type: MediaType
-    let date: Date
-}
-
-private struct MediaRecord: Identifiable, Codable {
-    enum MediaKind: String, Codable {
-        case photo
-        case video
-    }
-
-    let id: UUID
-    let createdAt: Date
-    let originalPath: String
-    let thumbPath: String
-    var isTrashed: Bool
-    var trashedAt: Date?
-    var mediaType: MediaKind
-}
-
-// 本地媒体库（照片/视频）
-@MainActor
-final class LocalMediaLibrary: ObservableObject {
-    static let shared: LocalMediaLibrary = LocalMediaLibrary()
-
-    @Published private(set) var items: [MediaItem] = []
-    @Published var latestThumbnail: UIImage? = nil
-
-    private var records: [MediaRecord] = []
-    private let fileManager: FileManager = FileManager.default
-    private let indexFileName: String = "media_index.json"
-
-    private var libraryDirectory: URL {
-        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        let folder = base?.appendingPathComponent("FocuspaceMedia", isDirectory: true)
-        return folder ?? URL(fileURLWithPath: NSTemporaryDirectory())
-    }
-
-    private var indexFileURL: URL {
-        libraryDirectory.appendingPathComponent(indexFileName)
-    }
-
-    private var videoDirectory: URL {
-        libraryDirectory.appendingPathComponent("Videos", isDirectory: true)
-    }
-
-    init() {
-        ensureLibraryDirectory()
-        loadIndex()
-        updateLatestThumbnailFromItems()
-    }
-
-    // 保存照片数据到本地，并更新索引
-    func savePhoto(_ data: Data) async throws {
-        ensureLibraryDirectory()
-
-        let id = UUID()
-        let createdAt = Date()
-        let originalURL = libraryDirectory.appendingPathComponent("\(id.uuidString).jpg")
-        let thumbURL = libraryDirectory.appendingPathComponent("\(id.uuidString)_thumb.jpg")
-
-        try data.write(to: originalURL, options: .atomic)
-
-        guard let image = UIImage(data: data) else {
-            throw NSError(domain: "LocalMediaLibrary", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid image data"])
-        }
-
-        var generatedThumbnail: UIImage? = nil
-        if let thumbnail = makeThumbnail(from: image, maxSize: 200) {
-            generatedThumbnail = thumbnail
-            if let thumbData = thumbnail.jpegData(compressionQuality: 0.8) {
-                try thumbData.write(to: thumbURL, options: .atomic)
-            }
-        }
-
-        let record = MediaRecord(
-            id: id,
-            createdAt: createdAt,
-            originalPath: originalURL.path,
-            thumbPath: thumbURL.path,
-            isTrashed: false,
-            trashedAt: nil,
-            mediaType: .photo
-        )
-
-        let item = MediaItem(
-            id: id,
-            type: .photo(image),
-            date: createdAt
-        )
-
-        records.insert(record, at: 0)
-        items.insert(item, at: 0)
-        if let generatedThumbnail {
-            // 保存后立即更新缩略图（主线程）
-            latestThumbnail = generatedThumbnail
-        } else {
-            updateLatestThumbnailFromItems()
-        }
-        saveIndex()
-    }
-
-    // 保存视频文件到本地，并更新索引
-    func saveVideoFile(at url: URL, id: UUID) async throws {
-        ensureLibraryDirectory()
-        ensureVideoDirectory()
-
-        let createdAt = Date()
-        let originalURL = videoDirectory.appendingPathComponent("\(id.uuidString).mov")
-        let thumbURL = libraryDirectory.appendingPathComponent("\(id.uuidString)_thumb.jpg")
-
-        if fileManager.fileExists(atPath: originalURL.path) {
-            try fileManager.removeItem(at: originalURL)
-        }
-        try fileManager.moveItem(at: url, to: originalURL)
-
-        let record = MediaRecord(
-            id: id,
-            createdAt: createdAt,
-            originalPath: originalURL.path,
-            thumbPath: thumbURL.path,
-            isTrashed: false,
-            trashedAt: nil,
-            mediaType: .video
-        )
-
-        let item = MediaItem(
-            id: id,
-            type: .video(originalURL),
-            date: createdAt
-        )
-
-        records.insert(record, at: 0)
-        items.insert(item, at: 0)
-        updateLatestThumbnailFromItems()
-        saveIndex()
-    }
-
-    func makeVideoFileURL(id: UUID) -> URL {
-        ensureLibraryDirectory()
-        ensureVideoDirectory()
-        return videoDirectory.appendingPathComponent("\(id.uuidString).mov")
-    }
-
-    // 标记为回收站（不删除文件）
-    func moveToTrash(ids: Set<UUID>) {
-        guard !ids.isEmpty else { return }
-
-        records = records.map { record in
-            if ids.contains(record.id) {
-                var updated = record
-                updated.isTrashed = true
-                updated.trashedAt = Date()
-                return updated
-            }
-            return record
-        }
-        updateLatestThumbnailFromItems()
-        saveIndex()
-    }
-
-    // 从回收站恢复
-    func restoreFromTrash(ids: Set<UUID>) {
-        guard !ids.isEmpty else { return }
-
-        records = records.map { record in
-            if ids.contains(record.id) {
-                var updated = record
-                updated.isTrashed = false
-                updated.trashedAt = nil
-                return updated
-            }
-            return record
-        }
-        updateLatestThumbnailFromItems()
-        saveIndex()
-    }
-
-    // 永久删除（删除文件）
-    func deletePermanently(ids: Set<UUID>) {
-        guard !ids.isEmpty else { return }
-
-        let removedRecords = records.filter { ids.contains($0.id) }
-        for record in removedRecords {
-            do {
-                try fileManager.removeItem(atPath: record.originalPath)
-            } catch {
-                print("Delete original failed:", error.localizedDescription)
-            }
-
-            do {
-                try fileManager.removeItem(atPath: record.thumbPath)
-            } catch {
-                print("Delete thumb failed:", error.localizedDescription)
-            }
-        }
-
-        records.removeAll { ids.contains($0.id) }
-        items.removeAll { ids.contains($0.id) }
-        updateLatestThumbnailFromItems()
-        saveIndex()
-    }
-
-    // 导出到系统相册（手动触发）
-    func exportToPhotos(ids: Set<UUID>) async -> Bool {
-        guard !ids.isEmpty else { return false }
-
-        let targets = records.filter { ids.contains($0.id) }
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.main.async {
-                PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-                    guard status == .authorized || status == .limited else {
-                        continuation.resume(returning: false)
-                        return
-                    }
-
-                    PHPhotoLibrary.shared().performChanges({
-                        for record in targets {
-                            switch record.mediaType {
-                            case .photo:
-                                if let image = UIImage(contentsOfFile: record.originalPath) {
-                                    PHAssetChangeRequest.creationRequestForAsset(from: image)
-                                }
-                            case .video:
-                                let url = URL(fileURLWithPath: record.originalPath)
-                                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
-                            }
-                        }
-                    }, completionHandler: { success, error in
-                        DispatchQueue.main.async {
-                            if success {
-                                print("Export success")
-                            } else {
-                                print("Export failed:", error?.localizedDescription ?? "")
-                            }
-                            continuation.resume(returning: success)
-                        }
-                    })
-                }
-            }
-        }
-    }
-
-    private var itemsByID: [UUID: MediaItem] {
-        Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
-    }
-
-    private func rebuildItemsFromRecords() {
-        items = records
-            .sorted { $0.createdAt > $1.createdAt }
-            .compactMap { makeMediaItem(from: $0) }
-    }
-
-    private func makeMediaItem(from record: MediaRecord) -> MediaItem? {
-        switch record.mediaType {
-        case .photo:
-            guard let image = UIImage(contentsOfFile: record.originalPath) else { return nil }
-            return MediaItem(id: record.id, type: .photo(image), date: record.createdAt)
-        case .video:
-            let url = URL(fileURLWithPath: record.originalPath)
-            return MediaItem(id: record.id, type: .video(url), date: record.createdAt)
-        }
-    }
-
-    // 素材列表（未删除）
-    var materials: [MediaItem] {
-        let map = itemsByID
-        return records
-            .filter { !$0.isTrashed }
-            .sorted { $0.createdAt > $1.createdAt }
-            .compactMap { map[$0.id] }
-    }
-
-    // 回收站列表
-    var trashed: [MediaItem] {
-        let map = itemsByID
-        return records
-            .filter { $0.isTrashed }
-            .sorted { ($0.trashedAt ?? $0.createdAt) > ($1.trashedAt ?? $1.createdAt) }
-            .compactMap { map[$0.id] }
-    }
-
-    // 从索引加载
-    private func loadIndex() {
-        guard fileManager.fileExists(atPath: indexFileURL.path) else { return }
-
-        do {
-            let data = try Data(contentsOf: indexFileURL)
-            let decoded = try JSONDecoder().decode([MediaRecord].self, from: data)
-            records = decoded.sorted { $0.createdAt > $1.createdAt }
-            rebuildItemsFromRecords()
-        } catch {
-            records = []
-            items = []
-        }
-    }
-
-    // 保存索引（原子写入）
-    private func saveIndex() {
-        do {
-            let data = try JSONEncoder().encode(records)
-            let tempURL = libraryDirectory.appendingPathComponent("media_index.tmp")
-            try data.write(to: tempURL, options: .atomic)
-
-            if fileManager.fileExists(atPath: indexFileURL.path) {
-                try fileManager.removeItem(at: indexFileURL)
-            }
-            try fileManager.moveItem(at: tempURL, to: indexFileURL)
-        } catch {
-            // ignore
-        }
-    }
-
-    private func ensureLibraryDirectory() {
-        if !fileManager.fileExists(atPath: libraryDirectory.path) {
-            try? fileManager.createDirectory(at: libraryDirectory, withIntermediateDirectories: true)
-        }
-    }
-
-    private func ensureVideoDirectory() {
-        if !fileManager.fileExists(atPath: videoDirectory.path) {
-            try? fileManager.createDirectory(at: videoDirectory, withIntermediateDirectories: true)
-        }
-    }
-
-    // 使用条目生成缩略图
-    func loadThumbnail(for item: MediaItem) -> UIImage? {
-        switch item.type {
-        case .photo(let image):
-            return makeThumbnail(from: image, maxSize: 200) ?? image
-        case .video(let url):
-            return generateVideoThumbnail(url: url, maxSize: 220)
-        }
-    }
-
-    // 更新最新缩略图（用于相机页左下角）
-    private func updateLatestThumbnailFromItems() {
-        if let first = materials.first, let image = loadThumbnail(for: first) {
-            latestThumbnail = image
-        } else {
-            latestThumbnail = nil
-        }
-    }
-
-    private func makeThumbnail(from image: UIImage, maxSize: CGFloat) -> UIImage? {
-        let size = image.size
-        let scale = min(maxSize / size.width, maxSize / size.height)
-        let targetSize = CGSize(width: size.width * scale, height: size.height * scale)
-
-        let renderer = UIGraphicsImageRenderer(size: targetSize)
-        return renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: targetSize))
-        }
-    }
-
-    private func generateVideoThumbnail(url: URL, maxSize: CGFloat) -> UIImage? {
-        let asset = AVAsset(url: url)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-
-        let time = CMTime(seconds: 0.1, preferredTimescale: 600)
-        do {
-            let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
-            let image = UIImage(cgImage: cgImage)
-            return makeThumbnail(from: image, maxSize: maxSize)
-        } catch {
-            return nil
         }
     }
 }

@@ -9,6 +9,6 @@ final class DebugSettings: ObservableObject {
 
     @Published var showGuidanceDebugHUD: Bool = false
     @Published var showAICoachDebugHUD: Bool = false
-    @Published var guidanceUIMode: GuidanceUIMode = .arrow
+    @Published var guidanceUIMode: GuidanceUIMode = .arrowScope
     @Published var showGridOverlay: Bool = true
 }

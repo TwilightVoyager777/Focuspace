@@ -408,6 +408,8 @@ private enum MediaLibraryTab {
 }
 
 private struct MediaLibraryThumbnailCell: View {
+    @EnvironmentObject private var library: LocalMediaLibrary
+
     let item: MediaItem
     let isSelecting: Bool
     let isSelected: Bool
@@ -415,20 +417,15 @@ private struct MediaLibraryThumbnailCell: View {
 
     var body: some View {
         let base = ZStack(alignment: .bottomLeading) {
-            switch item.type {
-            case .photo(let image):
-                Image(uiImage: image)
+            if let thumbnail = library.loadThumbnail(for: item) {
+                Image(uiImage: thumbnail)
                     .resizable()
                     .scaledToFill()
-            case .video(let url):
-                if let thumbnail = makeVideoThumbnail(url: url) {
-                    Image(uiImage: thumbnail)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Color.white.opacity(0.1)
-                }
+            } else {
+                Color.white.opacity(0.1)
+            }
 
+            if case .video = item.type {
                 Image(systemName: "play.circle.fill")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundColor(.white)
@@ -455,20 +452,6 @@ private struct MediaLibraryThumbnailCell: View {
         }
         .clipped()
         .cornerRadius(usePadLandscapeLayout ? 10 : 8)
-    }
-
-    private func makeVideoThumbnail(url: URL) -> UIImage? {
-        let asset = AVAsset(url: url)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-
-        let time = CMTime(seconds: 0.1, preferredTimescale: 600)
-        do {
-            let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
-            return UIImage(cgImage: cgImage)
-        } catch {
-            return nil
-        }
     }
 }
 
@@ -516,11 +499,16 @@ private struct MediaPreviewView: View {
 
                 GeometryReader { geo in
                     switch item.type {
-                    case .photo(let image):
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: geo.size.width, height: geo.size.height)
+                    case .photo(let url):
+                        if let image = UIImage(contentsOfFile: url.path) {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: geo.size.width, height: geo.size.height)
+                        } else {
+                            Color.white.opacity(0.08)
+                                .frame(width: geo.size.width, height: geo.size.height)
+                        }
                     case .video(let url):
                         VideoPlayer(player: player)
                             .aspectRatio(videoAspectRatio, contentMode: .fit)

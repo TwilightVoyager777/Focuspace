@@ -8,6 +8,7 @@ struct BottomControlsView: View {
     var useLandscapeSidebarLayout: Bool = false
     let onToggleBottomPanel: () -> Void
     let onSmartCompose: () -> Void
+    @EnvironmentObject private var debugSettings: DebugSettings
 
     var body: some View {
         let controlScale: CGFloat = usePadPortraitLayout ? 1.06 : 1.0
@@ -20,13 +21,15 @@ struct BottomControlsView: View {
                     VStack(spacing: 10) {
                         TemplateToggleButtonView(action: onToggleBottomPanel)
 
-                        SmartComposeButtonView(
-                            isActive: cameraController.isSmartComposeActive,
-                            isProcessing: cameraController.isSmartComposeProcessing,
-                            isEnabled: !cameraController.isRecording,
-                            size: 49,
-                            action: onSmartCompose
-                        )
+                        if debugSettings.showSmartTemplateButton {
+                            SmartComposeButtonView(
+                                isActive: cameraController.isSmartComposeActive,
+                                isProcessing: cameraController.isSmartComposeProcessing,
+                                isEnabled: !cameraController.isRecording,
+                                size: 49,
+                                action: onSmartCompose
+                            )
+                        }
                     }
                     .scaleEffect(0.94)
 
@@ -55,12 +58,14 @@ struct BottomControlsView: View {
                         Spacer()
 
                         HStack(spacing: sideButtonSpacing) {
-                            SmartComposeButtonView(
-                                isActive: cameraController.isSmartComposeActive,
-                                isProcessing: cameraController.isSmartComposeProcessing,
-                                isEnabled: !cameraController.isRecording,
-                                action: onSmartCompose
-                            )
+                            if debugSettings.showSmartTemplateButton {
+                                SmartComposeButtonView(
+                                    isActive: cameraController.isSmartComposeActive,
+                                    isProcessing: cameraController.isSmartComposeProcessing,
+                                    isEnabled: !cameraController.isRecording,
+                                    action: onSmartCompose
+                                )
+                            }
                             TemplateToggleButtonView(action: onToggleBottomPanel)
                         }
                         .scaleEffect(controlScale)

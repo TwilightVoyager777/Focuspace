@@ -7,7 +7,7 @@ struct CameraFilterSettings: Sendable {
     var colorOff: Bool
 }
 
-final class CameraFilterController {
+final class CameraFilterController: @unchecked Sendable {
     private let settingsQueue = DispatchQueue(label: "camera.filter.settings.queue")
     private var settings = CameraFilterSettings(
         sharpness: 0.0,

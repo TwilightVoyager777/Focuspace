@@ -282,7 +282,7 @@ struct RulerControl: View {
 
     private func rulerTicks(width: CGFloat) -> some View {
         let tickCount = 61
-        let spacing: CGFloat = 10
+        let spacing = width / CGFloat(max(1, tickCount - 1))
         let totalWidth = CGFloat(tickCount - 1) * spacing
 
         return HStack(spacing: spacing) {
@@ -299,7 +299,7 @@ struct RulerControl: View {
 
     private func rulerTicksVertical(height: CGFloat) -> some View {
         let tickCount = 61
-        let spacing: CGFloat = 10
+        let spacing = height / CGFloat(max(1, tickCount - 1))
         let totalHeight = CGFloat(tickCount - 1) * spacing
 
         return VStack(spacing: spacing) {

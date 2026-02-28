@@ -327,14 +327,18 @@ private struct TemplateOverlayDiagramShape: Shape {
 
     private func leadingLinesPath(in rect: CGRect) -> Path {
         var path = Path()
-        let focal = CGPoint(x: rect.minX + rect.width * 0.66, y: rect.minY + rect.height * 0.33)
+        let focal = CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.32)
+        let lowerInset = rect.width * 0.10
+        let midInset = rect.width * 0.22
+        let midY = rect.minY + rect.height * 0.62
 
         let sources = [
-            CGPoint(x: rect.minX, y: rect.maxY),
-            CGPoint(x: rect.midX, y: rect.maxY),
-            CGPoint(x: rect.maxX, y: rect.maxY),
-            CGPoint(x: rect.minX, y: rect.midY + rect.height * 0.15),
-            CGPoint(x: rect.maxX, y: rect.midY + rect.height * 0.15)
+            CGPoint(x: rect.minX + lowerInset, y: rect.maxY),
+            CGPoint(x: rect.midX - rect.width * 0.12, y: rect.maxY),
+            CGPoint(x: rect.midX + rect.width * 0.12, y: rect.maxY),
+            CGPoint(x: rect.maxX - lowerInset, y: rect.maxY),
+            CGPoint(x: rect.minX + midInset, y: midY),
+            CGPoint(x: rect.maxX - midInset, y: midY)
         ]
 
         for source in sources {

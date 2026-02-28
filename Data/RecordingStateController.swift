@@ -1,6 +1,6 @@
 import Foundation
 
-final class RecordingStateController {
+final class RecordingStateController: @unchecked Sendable {
     private var pendingRecordingID: UUID? = nil
     private var recordingTimer: Timer? = nil
     private(set) var recordingDuration: TimeInterval = 0
@@ -12,7 +12,7 @@ final class RecordingStateController {
         return directory.appendingPathComponent("\(id.uuidString).mov")
     }
 
-    func begin(onDurationChange: @escaping (TimeInterval) -> Void) {
+    func begin(onDurationChange: @escaping @Sendable (TimeInterval) -> Void) {
         recordingTimer?.invalidate()
         recordingDuration = 0
         onDurationChange(recordingDuration)
@@ -24,7 +24,7 @@ final class RecordingStateController {
         }
     }
 
-    func finish(onDurationChange: @escaping (TimeInterval) -> Void) -> UUID? {
+    func finish(onDurationChange: @escaping @Sendable (TimeInterval) -> Void) -> UUID? {
         let finishedRecordingID = pendingRecordingID
         pendingRecordingID = nil
         recordingTimer?.invalidate()

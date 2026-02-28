@@ -80,16 +80,6 @@
     ]
   },
   {
-    "id": "diagonals",
-    "name": "Diagonals",
-    "subtitle": "Dynamic tension",
-    "philosophy": "Diagonal structure creates energy and motion.",
-    "examples": [
-      "diagonals_01",
-      "diagonals_02"
-    ]
-  },
-  {
     "id": "triangle",
     "name": "Triangle Composition",
     "subtitle": "Stable geometry",
@@ -97,16 +87,6 @@
     "examples": [
       "triangle_01",
       "triangle_02"
-    ]
-  },
-  {
-    "id": "layers_fmb",
-    "name": "Layers (F–M–B)",
-    "subtitle": "Depth & story",
-    "philosophy": "Foreground, midground, background create depth and context.",
-    "examples": [
-      "layers_fmb_01",
-      "layers_fmb_02"
     ]
   }
 ]

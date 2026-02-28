@@ -60,19 +60,9 @@ enum TemplateRegistry {
             ]
         ),
         TemplateRegistryEntry(
-            id: "diagonals",
-            shortTitle: "Diagonals",
-            sortOrder: 5,
-            usageBullets: [
-                "Align the main structure along a diagonal.",
-                "Use diagonals to create motion and tension.",
-                "Keep the diagonal clean and dominant."
-            ]
-        ),
-        TemplateRegistryEntry(
             id: "negative_space",
             shortTitle: "Negative Space",
-            sortOrder: 6,
+            sortOrder: 5,
             usageBullets: [
                 "Give the subject room to breathe.",
                 "Use emptiness to emphasize form.",
@@ -82,7 +72,7 @@ enum TemplateRegistry {
         TemplateRegistryEntry(
             id: "portrait_headroom",
             shortTitle: "Headroom",
-            sortOrder: 7,
+            sortOrder: 6,
             usageBullets: [
                 "Keep eyes near the eye-line guide.",
                 "Leave clean headroom above the subject.",
@@ -92,7 +82,7 @@ enum TemplateRegistry {
         TemplateRegistryEntry(
             id: "triangle",
             shortTitle: "Triangle",
-            sortOrder: 8,
+            sortOrder: 7,
             usageBullets: [
                 "Build a clear triangle with subject elements.",
                 "Use the apex as the attention anchor.",
@@ -100,19 +90,9 @@ enum TemplateRegistry {
             ]
         ),
         TemplateRegistryEntry(
-            id: "layers_fmb",
-            shortTitle: "Layers",
-            sortOrder: 9,
-            usageBullets: [
-                "Include a foreground element for depth.",
-                "Place the main subject in the midground.",
-                "Use background to set context, not clutter."
-            ]
-        ),
-        TemplateRegistryEntry(
             id: "rule_of_thirds",
             shortTitle: "Thirds",
-            sortOrder: 10,
+            sortOrder: 8,
             usageBullets: [
                 "Place the subject near intersecting thirds.",
                 "Align horizon on upper or lower third.",

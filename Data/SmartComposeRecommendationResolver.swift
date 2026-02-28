@@ -88,7 +88,7 @@ enum SmartComposeRecommendationResolver {
             return ("portrait_headroom", "Strong vertical offset. Balance with portrait headroom.")
         }
         if absX > 0.16, absY > 0.16 {
-            return ("diagonals", "Dual-axis offset fits diagonal composition.")
+            return ("rule_of_thirds", "Dual-axis offset is safer with thirds framing.")
         }
         if absX > 0.09 || absY > 0.09 {
             return ("rule_of_thirds", "Offset subject fits thirds better than center.")

@@ -53,7 +53,6 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     @Published var isModeSwitching: Bool = false
     @Published var isCameraSwitching: Bool = false
     @Published var previewFreeze: Bool = false
-    @Published var switchSnapshot: UIImage? = nil
     @Published private(set) var cameraPosition: AVCaptureDevice.Position = .back
     @Published var isLevelOverlayEnabled: Bool = false
     @Published private(set) var filteredPreviewImage: CGImage? = nil
@@ -65,6 +64,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     @Published private(set) var stableSymmetryDx: CGFloat = 0
     @Published private(set) var stableSymmetryDy: CGFloat = 0
     @Published private(set) var stableSymmetryIsHolding: Bool = true
+    @Published private(set) var isGuidanceReframeNeeded: Bool = false
     @Published private(set) var overlayTargetPoint: CGPoint? = nil
     @Published private(set) var overlayDiagonalType: DiagonalType? = nil
     @Published private(set) var overlayNegativeSpaceZone: CGRect? = nil
@@ -121,11 +121,11 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     private let mediaLibrary: LocalMediaLibrary
     private let recordingStateController = RecordingStateController()
     private var currentVideoInput: AVCaptureDeviceInput? = nil
+    private var currentAudioInput: AVCaptureDeviceInput? = nil
     private var currentPosition: AVCaptureDevice.Position = .back
     private let photoCropStateQueue: DispatchQueue = DispatchQueue(label: "camera.photo.crop.state.queue")
     private var pendingPhotoCropRectByID: [Int64: CGRect] = [:]
 
-    var snapshotProvider: (() -> UIImage?)?
     var previewVisibleRectProvider: (() -> CGRect?)?
 
     init(library: LocalMediaLibrary) {
@@ -295,6 +295,18 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         }
     }
 
+    private func requestAudioAccessIfNeeded() async -> Bool {
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        switch status {
+        case .authorized:
+            return true
+        case .notDetermined:
+            return await AVCaptureDevice.requestAccess(for: .audio)
+        default:
+            return false
+        }
+    }
+
     func configureIfNeeded() {
         let isAuthorized = readState() == .authorized
         guard isAuthorized else { return }
@@ -433,6 +445,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 self.stableSymmetryDx = 0
                 self.stableSymmetryDy = 0
                 self.stableSymmetryIsHolding = true
+                self.isGuidanceReframeNeeded = false
                 self.subjectCurrentNormalized = nil
                 self.subjectTrackScore = 0
                 self.subjectIsLost = true
@@ -600,21 +613,34 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         return
         #endif
 
-        sessionQueue.async { [weak self] in
+        Task { [weak self] in
             guard let self else { return }
-            guard self.readCaptureMode() == .video else { return }
-            guard !self.movieOutput.isRecording else { return }
-            guard self.movieOutput.connection(with: .video) != nil else {
-                self.setCaptureResult(success: false, message: "Video connection unavailable")
+            let hasAudioAccess = await self.requestAudioAccessIfNeeded()
+            guard hasAudioAccess else {
+                self.setCaptureResult(success: false, message: "Microphone access required for video audio")
                 return
             }
-            let outputURL = self.prepareRecordingOutputURL()
-            self.configureMovieOutputConnection()
-            if FileManager.default.fileExists(atPath: outputURL.path) {
-                try? FileManager.default.removeItem(at: outputURL)
+
+            self.sessionQueue.async { [weak self] in
+                guard let self else { return }
+                guard self.readCaptureMode() == .video else { return }
+                guard !self.movieOutput.isRecording else { return }
+                guard self.ensureAudioInputConfiguredIfNeeded() else {
+                    self.setCaptureResult(success: false, message: "Microphone unavailable")
+                    return
+                }
+                guard self.movieOutput.connection(with: .video) != nil else {
+                    self.setCaptureResult(success: false, message: "Video connection unavailable")
+                    return
+                }
+                let outputURL = self.prepareRecordingOutputURL()
+                self.configureMovieOutputConnection()
+                if FileManager.default.fileExists(atPath: outputURL.path) {
+                    try? FileManager.default.removeItem(at: outputURL)
+                }
+                self.movieOutput.startRecording(to: outputURL, recordingDelegate: self)
+                self.beginRecordingUIState()
             }
-            self.movieOutput.startRecording(to: outputURL, recordingDelegate: self)
-            self.beginRecordingUIState()
         }
     }
 
@@ -648,11 +674,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
             let newPosition: AVCaptureDevice.Position = self.currentPosition == .back ? .front : .back
             guard let newDevice = self.defaultCameraDevice(for: newPosition) else { return }
-            let snapshot = DispatchQueue.main.sync {
-                self.snapshotProvider?()
-            }
             DispatchQueue.main.async {
-                self.switchSnapshot = snapshot
                 withAnimation(.easeOut(duration: 0.12)) {
                     self.isCameraSwitching = true
                     self.previewFreeze = true
@@ -682,12 +704,13 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 self.configurePhotoOutputConnection()
                 self.configureMovieOutputConnection()
                 self.applyVideoConnectionsForCurrentState(position: newPosition)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+                DispatchQueue.main.async { [weak self] in
+                    self?.cameraPosition = newPosition
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { [weak self] in
                     withAnimation(.easeInOut(duration: 0.18)) {
-                        self?.cameraPosition = newPosition
                         self?.previewFreeze = false
                         self?.isCameraSwitching = false
-                        self?.switchSnapshot = nil
                     }
                 }
             } catch {
@@ -700,7 +723,6 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                     withAnimation(.easeInOut(duration: 0.18)) {
                         self?.previewFreeze = false
                         self?.isCameraSwitching = false
-                        self?.switchSnapshot = nil
                     }
                 }
             }
@@ -1324,6 +1346,12 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         }
     }
 
+    private func setGuidanceReframeNeeded(_ value: Bool) {
+        DispatchQueue.main.async {
+            self.isGuidanceReframeNeeded = value
+        }
+    }
+
     private func setOverlayHints(targetPoint: CGPoint?, diagonalType: DiagonalType?, negativeSpaceZone: CGRect?) {
         DispatchQueue.main.async {
             self.overlayTargetPoint = targetPoint
@@ -1581,6 +1609,32 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         }
     }
 
+    private func ensureAudioInputConfiguredIfNeeded() -> Bool {
+        if currentAudioInput != nil {
+            return true
+        }
+
+        guard let device = AVCaptureDevice.default(for: .audio) else {
+            return false
+        }
+
+        do {
+            let input = try AVCaptureDeviceInput(device: device)
+            session.beginConfiguration()
+            defer { session.commitConfiguration() }
+
+            guard session.canAddInput(input) else {
+                return false
+            }
+
+            session.addInput(input)
+            currentAudioInput = input
+            return true
+        } catch {
+            return false
+        }
+    }
+
     private func defaultCameraDevice(for position: AVCaptureDevice.Position) -> AVCaptureDevice? {
         if position == .front {
             let discovery = AVCaptureDevice.DiscoverySession(
@@ -1665,44 +1719,57 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     }
 
     private func currentInterfaceVideoRotationAngle() -> CGFloat {
-        let deviceOrientation = UIDevice.current.orientation
-        switch deviceOrientation {
-        case .landscapeLeft:
-            return 0
-        case .landscapeRight:
-            return 180
-        case .portraitUpsideDown:
-            return 270
-        default:
-            break
-        }
+        let readAngle = {
+            MainActor.assumeIsolated { () -> CGFloat in
+                let deviceOrientation = UIDevice.current.orientation
+                switch deviceOrientation {
+                case .landscapeLeft:
+                    return 0
+                case .landscapeRight:
+                    return 180
+                case .portraitUpsideDown:
+                    return 270
+                default:
+                    break
+                }
 
-        let interfaceOrientation = readCurrentInterfaceOrientation()
-        switch interfaceOrientation {
-        case .landscapeRight:
-            return 0
-        case .landscapeLeft:
-            return 180
-        case .portraitUpsideDown:
-            return 270
-        default:
-            return 90
+                let interfaceOrientation = self.readCurrentInterfaceOrientationOnMain()
+                switch interfaceOrientation {
+                case .landscapeRight:
+                    return 0
+                case .landscapeLeft:
+                    return 180
+                case .portraitUpsideDown:
+                    return 270
+                default:
+                    return 90
+                }
+            }
         }
+        if Thread.isMainThread {
+            return readAngle()
+        }
+        return DispatchQueue.main.sync(execute: readAngle)
     }
 
     private func readCurrentInterfaceOrientation() -> UIInterfaceOrientation {
-        let readOrientation = { () -> UIInterfaceOrientation in
-            UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .first(where: { $0.activationState == .foregroundActive })?
-                .interfaceOrientation ?? .portrait
+        let readOrientation = {
+            MainActor.assumeIsolated {
+                self.readCurrentInterfaceOrientationOnMain()
+            }
         }
         if Thread.isMainThread {
             return readOrientation()
         }
-        return DispatchQueue.main.sync {
-            readOrientation()
-        }
+        return DispatchQueue.main.sync(execute: readOrientation)
+    }
+
+    @MainActor
+    private func readCurrentInterfaceOrientationOnMain() -> UIInterfaceOrientation {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first(where: { $0.activationState == .foregroundActive })?
+            .interfaceOrientation ?? .portrait
     }
 
     func syncConnectionsToInterfaceOrientation() {
@@ -1809,37 +1876,53 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     }
 
     private func beginRecordingUIState() {
-        let applyDuration: (TimeInterval) -> Void = { [weak self] duration in
-            self?.recordingDuration = duration
-        }
-
-        let updateState = { [weak self] in
-            guard let self else { return }
-            self.isRecording = true
-            self.recordingStateController.begin(onDurationChange: applyDuration)
-        }
-
         if Thread.isMainThread {
-            updateState()
+            let applyDuration: @Sendable (TimeInterval) -> Void = { [weak self] duration in
+                guard let self else { return }
+                DispatchQueue.main.async {
+                    self.recordingDuration = duration
+                }
+            }
+            isRecording = true
+            recordingStateController.begin(onDurationChange: applyDuration)
         } else {
-            DispatchQueue.main.async(execute: updateState)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let applyDuration: @Sendable (TimeInterval) -> Void = { [weak self] duration in
+                    guard let self else { return }
+                    DispatchQueue.main.async {
+                        self.recordingDuration = duration
+                    }
+                }
+                self.isRecording = true
+                self.recordingStateController.begin(onDurationChange: applyDuration)
+            }
         }
     }
 
     private func finishRecordingUIState() -> UUID? {
-        let applyDuration: (TimeInterval) -> Void = { [weak self] duration in
-            self?.recordingDuration = duration
+        if Thread.isMainThread {
+            let applyDuration: @Sendable (TimeInterval) -> Void = { [weak self] duration in
+                guard let self else { return }
+                DispatchQueue.main.async {
+                    self.recordingDuration = duration
+                }
+            }
+            isRecording = false
+            return recordingStateController.finish(onDurationChange: applyDuration)
         }
 
-        let updateState = { () -> UUID? in
+        return DispatchQueue.main.sync { [weak self] in
+            guard let self else { return nil }
+            let applyDuration: @Sendable (TimeInterval) -> Void = { [weak self] duration in
+                guard let self else { return }
+                DispatchQueue.main.async {
+                    self.recordingDuration = duration
+                }
+            }
             self.isRecording = false
             return self.recordingStateController.finish(onDurationChange: applyDuration)
         }
-
-        if Thread.isMainThread {
-            return updateState()
-        }
-        return DispatchQueue.main.sync(execute: updateState)
     }
 
     var recordingDurationText: String {
@@ -2066,6 +2149,7 @@ extension CameraSessionController: AVCaptureVideoDataOutputSampleBufferDelegate 
                 dy: guidance.stableDy,
                 isHolding: guidance.isHolding
             )
+            setGuidanceReframeNeeded(guidance.requiresReframe)
             isHoldingForSmartCompose = guidance.isHolding
             aiTemplateID = guidance.canonicalTemplateID
             aiTargetPoint = guidance.targetPoint
@@ -2079,6 +2163,7 @@ extension CameraSessionController: AVCaptureVideoDataOutputSampleBufferDelegate 
             setOverlayHints(targetPoint: nil, diagonalType: nil, negativeSpaceZone: nil)
             frameGuidanceCoordinator.reset()
             setStableSymmetry(dx: 0, dy: 0, isHolding: true)
+            setGuidanceReframeNeeded(false)
             isHoldingForSmartCompose = true
         }
         processSmartComposeOnFrame(

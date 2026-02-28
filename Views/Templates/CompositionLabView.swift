@@ -4,6 +4,7 @@ import UIKit
 struct CompositionLabView: View {
     let selectTemplate: (String) -> Void
     let closeLab: () -> Void
+    @Environment(\.dismiss) private var dismiss
 
     private let templates: [CompositionTemplate] = sortTemplates(TemplateCatalog.load())
 
@@ -12,6 +13,7 @@ struct CompositionLabView: View {
             let usePadLandscapeLayout = UIDevice.current.userInterfaceIdiom == .pad && proxy.size.width > proxy.size.height
             let spacing: CGFloat = usePadLandscapeLayout ? 18 : 16
             let horizontalPadding: CGFloat = usePadLandscapeLayout ? 28 : 20
+            let topInset: CGFloat = usePadLandscapeLayout ? max(proxy.safeAreaInsets.top, 10) + 28 : 0
             let columns: [GridItem] = {
                 if usePadLandscapeLayout {
                     let targetCardWidth: CGFloat = 210
@@ -23,6 +25,33 @@ struct CompositionLabView: View {
             }()
 
             ScrollView {
+                if usePadLandscapeLayout {
+                    HStack {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+                        .buttonStyle(.plain)
+
+                        Spacer()
+
+                        Text("Composition Lab")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.white)
+
+                        Spacer()
+
+                        Color.clear
+                            .frame(width: 18, height: 18)
+                    }
+                    .padding(.horizontal, horizontalPadding)
+                    .padding(.top, topInset)
+                    .padding(.bottom, 8)
+                }
+
                 LazyVGrid(columns: columns, spacing: spacing) {
                     ForEach(templates) { template in
                         NavigationLink {
@@ -37,11 +66,12 @@ struct CompositionLabView: View {
                     }
                 }
                 .padding(.horizontal, horizontalPadding)
-                .padding(.top, usePadLandscapeLayout ? 14 : 12)
+                .padding(.top, usePadLandscapeLayout ? 0 : 12)
                 .padding(.bottom, usePadLandscapeLayout ? 30 : 24)
             }
             .background(Color.black.ignoresSafeArea())
-            .navigationTitle("Composition Lab")
+            .toolbar(usePadLandscapeLayout ? .hidden : .automatic, for: .navigationBar)
+            .navigationTitle(usePadLandscapeLayout ? "" : "Composition Lab")
             .navigationBarTitleDisplayMode(usePadLandscapeLayout ? .inline : .large)
             .onAppear {
                 #if DEBUG
@@ -111,8 +141,36 @@ struct TemplateDetailView: View {
     var body: some View {
         GeometryReader { proxy in
             let usePadLandscapeLayout = UIDevice.current.userInterfaceIdiom == .pad && proxy.size.width > proxy.size.height
+            let topInset: CGFloat = usePadLandscapeLayout ? max(proxy.safeAreaInsets.top, 10) + 28 : 0
 
             ScrollView {
+                if usePadLandscapeLayout {
+                    HStack {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+                        .buttonStyle(.plain)
+
+                        Spacer()
+
+                        Text("Composition Lab")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.white)
+
+                        Spacer()
+
+                        Color.clear
+                            .frame(width: 18, height: 18)
+                    }
+                    .padding(.horizontal, 28)
+                    .padding(.top, topInset)
+                    .padding(.bottom, 8)
+                }
+
                 if usePadLandscapeLayout {
                     let horizontalPadding: CGFloat = 28
                     let leftColumnWidth = min(420, max(320, proxy.size.width * 0.36))
@@ -132,7 +190,7 @@ struct TemplateDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
                     .padding(.horizontal, horizontalPadding)
-                    .padding(.top, 14)
+                    .padding(.top, 0)
                     .padding(.bottom, 32)
                 } else {
                     VStack(alignment: .leading, spacing: 24) {
@@ -146,7 +204,8 @@ struct TemplateDetailView: View {
                 }
             }
             .background(Color.black.ignoresSafeArea())
-            .navigationTitle("Composition Lab")
+            .toolbar(usePadLandscapeLayout ? .hidden : .automatic, for: .navigationBar)
+            .navigationTitle(usePadLandscapeLayout ? "" : "Composition Lab")
             .navigationBarTitleDisplayMode(usePadLandscapeLayout ? .inline : .large)
         }
         .fullScreenCover(item: $selectedAsset) { asset in
@@ -293,44 +352,46 @@ struct ImageLightboxView: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+        GeometryReader { proxy in
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-            if let image = UIImage(named: assetName), !assetName.isEmpty {
-                ZoomableImageView(image: image)
-            } else {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(LinearGradient(
-                            colors: [Color(white: 0.2), Color(white: 0.08)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ))
-                    Text(assetName.isEmpty ? "No image" : assetName)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.6))
-                        .padding(.horizontal, 16)
-                }
-                .frame(width: 260, height: 195)
-            }
-
-            VStack {
-                HStack {
-                    Spacer()
-                    Button {
-                        onDismiss()
-                    } label: {
-                        Image(systemName: "xmark")
+                if let image = UIImage(named: assetName), !assetName.isEmpty {
+                    ZoomableImageView(image: image)
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(LinearGradient(
+                                colors: [Color(white: 0.2), Color(white: 0.08)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ))
+                        Text(assetName.isEmpty ? "No image" : assetName)
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 36, height: 36)
-                            .background(Color.white.opacity(0.15))
-                            .clipShape(Circle())
+                            .foregroundColor(.white.opacity(0.6))
+                            .padding(.horizontal, 16)
                     }
-                    .padding(.top, 12)
-                    .padding(.trailing, 12)
+                    .frame(width: 260, height: 195)
                 }
-                Spacer()
+
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button {
+                            onDismiss()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 36, height: 36)
+                                .background(Color.white.opacity(0.15))
+                                .clipShape(Circle())
+                        }
+                        .padding(.top, max(proxy.safeAreaInsets.top, 10) + 24)
+                        .padding(.trailing, 12)
+                    }
+                    Spacer()
+                }
             }
         }
     }
@@ -646,14 +707,18 @@ struct CompositionDiagramView: Shape {
 
     private func leadingLinesPath(in rect: CGRect) -> Path {
         var path = Path()
-        let focal = CGPoint(x: rect.minX + rect.width * 0.66, y: rect.minY + rect.height * 0.33)
+        let focal = CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.32)
+        let lowerInset = rect.width * 0.10
+        let midInset = rect.width * 0.22
+        let midY = rect.minY + rect.height * 0.62
 
         let sources = [
-            CGPoint(x: rect.minX, y: rect.maxY),
-            CGPoint(x: rect.midX, y: rect.maxY),
-            CGPoint(x: rect.maxX, y: rect.maxY),
-            CGPoint(x: rect.minX, y: rect.midY + rect.height * 0.15),
-            CGPoint(x: rect.maxX, y: rect.midY + rect.height * 0.15)
+            CGPoint(x: rect.minX + lowerInset, y: rect.maxY),
+            CGPoint(x: rect.midX - rect.width * 0.12, y: rect.maxY),
+            CGPoint(x: rect.midX + rect.width * 0.12, y: rect.maxY),
+            CGPoint(x: rect.maxX - lowerInset, y: rect.maxY),
+            CGPoint(x: rect.minX + midInset, y: midY),
+            CGPoint(x: rect.maxX - midInset, y: midY)
         ]
 
         for source in sources {

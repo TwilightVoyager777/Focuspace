@@ -19,6 +19,7 @@ struct MediaLibraryView: View {
             let usePadLandscapeLayout = UIDevice.current.userInterfaceIdiom == .pad && proxy.size.width > proxy.size.height
             let horizontalPadding: CGFloat = usePadLandscapeLayout ? 28 : 16
             let verticalSpacing: CGFloat = usePadLandscapeLayout ? 14 : 16
+            let topInset: CGFloat = usePadLandscapeLayout ? max(proxy.safeAreaInsets.top, 10) + 24 : 8
 
             ZStack {
                 Color.black.ignoresSafeArea()
@@ -44,7 +45,7 @@ struct MediaLibraryView: View {
                     }
                 }
                 .padding(.horizontal, horizontalPadding)
-                .padding(.top, usePadLandscapeLayout ? 12 : 8)
+                .padding(.top, topInset)
                 .padding(.bottom, usePadLandscapeLayout ? 20 : 16)
 
                 if isSelecting {
@@ -84,18 +85,10 @@ struct MediaLibraryView: View {
 
             Spacer()
 
-            HStack(spacing: usePadLandscapeLayout ? 14 : 12) {
-                Button(action: {}) {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-
-                Button(action: toggleSelectionMode) {
-                    Text(isSelecting ? "Cancel" : "Select")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.white)
-                }
+            Button(action: toggleSelectionMode) {
+                Text(isSelecting ? "Cancel" : "Select")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
             }
         }
     }
@@ -463,74 +456,232 @@ private struct MediaPreviewView: View {
     let onDelete: (Set<UUID>) -> Void
 
     @State private var player: AVPlayer? = nil
+    @State private var previewImage: UIImage? = nil
     @State private var videoAspectRatio: CGFloat = 9.0 / 16.0
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+        GeometryReader { proxy in
+            let horizontalPadding: CGFloat = proxy.size.width > 700 ? 20 : 12
+            let bottomInset = max(proxy.safeAreaInsets.bottom, 12)
+            let topInset = max(proxy.safeAreaInsets.top, 10)
 
-            VStack(spacing: 0) {
-                HStack {
-                    Button(action: { dismiss() }) {
-                        Text("Back")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color.black,
+                        Color(red: 0.07, green: 0.07, blue: 0.08),
+                        Color.black
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
 
-                    Spacer()
+                VStack(spacing: 12) {
+                    previewHeader
 
-                    Button(action: { onExport([item.id]) }) {
-                        Text("Export")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
+                    previewStage
 
-                    Button(action: {
-                        onDelete([item.id])
-                        dismiss()
-                    }) {
-                        Text("Delete")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
+                    previewFooter
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.top, topInset)
+                .padding(.bottom, bottomInset)
+            }
+        }
+        .task(id: item.id) {
+            await prepareMedia()
+        }
+        .onDisappear {
+            player?.pause()
+            player = nil
+        }
+        .toolbar(.hidden, for: .navigationBar)
+    }
 
-                GeometryReader { geo in
-                    switch item.type {
-                    case .photo(let url):
-                        if let image = UIImage(contentsOfFile: url.path) {
-                            Image(uiImage: image)
+    private var previewHeader: some View {
+        HStack(spacing: 12) {
+            Button(action: { dismiss() }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 34, height: 34)
+                    .background(Color.white.opacity(0.12))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(mediaTitle)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                Text(formattedDate)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+
+            Spacer()
+        }
+    }
+
+    private var previewStage: some View {
+        GeometryReader { geo in
+            let stageWidth = geo.size.width
+            let stageHeight = max(260, geo.size.height)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(Color.white.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    )
+
+                switch item.type {
+                case .photo:
+                    if let previewImage {
+                        ZoomablePreviewSurface {
+                            Image(uiImage: previewImage)
                                 .resizable()
                                 .scaledToFit()
-                                .frame(width: geo.size.width, height: geo.size.height)
-                        } else {
-                            Color.white.opacity(0.08)
-                                .frame(width: geo.size.width, height: geo.size.height)
+                                .frame(maxWidth: stageWidth - 12, maxHeight: stageHeight - 12)
                         }
-                    case .video(let url):
-                        VideoPlayer(player: player)
-                            .aspectRatio(videoAspectRatio, contentMode: .fit)
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .background(Color.black)
-                            .onAppear {
-                                if player == nil {
-                                    player = AVPlayer(url: url)
-                                }
-                                Task {
-                                    videoAspectRatio = await loadVideoDisplayRatio(url: url)
-                                }
-                                player?.play()
-                            }
-                            .onDisappear {
-                                player?.pause()
-                            }
+                    } else {
+                        previewPlaceholder(
+                            systemName: "photo",
+                            message: "Loading photo..."
+                        )
+                    }
+                case .video:
+                    if let player {
+                        ZoomablePreviewSurface {
+                            VideoPlayer(player: player)
+                                .aspectRatio(videoAspectRatio, contentMode: .fit)
+                                .frame(maxWidth: stageWidth - 12, maxHeight: stageHeight - 12)
+                                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }
+                    } else {
+                        previewPlaceholder(
+                            systemName: "video",
+                            message: "Loading video..."
+                        )
                     }
                 }
             }
+            .frame(width: stageWidth, height: stageHeight)
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var previewFooter: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 12) {
+                actionButton(
+                    title: "Export",
+                    systemName: "square.and.arrow.up",
+                    style: .secondary,
+                    action: {
+                        onExport([item.id])
+                    }
+                )
+
+                actionButton(
+                    title: "Delete",
+                    systemName: "trash",
+                    style: .destructive,
+                    action: {
+                        onDelete([item.id])
+                        dismiss()
+                    }
+                )
+            }
+
+            Text(footerCaption)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.5))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private func previewPlaceholder(systemName: String, message: String) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: systemName)
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundColor(.white.opacity(0.7))
+            Text(message)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white.opacity(0.55))
+        }
+    }
+
+    private func actionButton(
+        title: String,
+        systemName: String,
+        style: MediaPreviewActionStyle,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemName)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(style.background)
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(style.border, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func prepareMedia() async {
+        switch item.type {
+        case .photo(let url):
+            player?.pause()
+            player = nil
+            previewImage = UIImage(contentsOfFile: url.path)
+        case .video(let url):
+            previewImage = nil
+            if player == nil {
+                player = AVPlayer(url: url)
+            } else {
+                player?.replaceCurrentItem(with: AVPlayerItem(url: url))
+            }
+            videoAspectRatio = await loadVideoDisplayRatio(url: url)
+            player?.play()
+        }
+    }
+
+    private var mediaTitle: String {
+        switch item.type {
+        case .photo:
+            return "Photo"
+        case .video:
+            return "Video"
+        }
+    }
+
+    private var footerCaption: String {
+        switch item.type {
+        case .photo:
+            return "Previewing the original image stored in your local library."
+        case .video:
+            return "Video playback uses the original file from your local library."
+        }
+    }
+
+    private var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: item.date)
     }
 
     private nonisolated func loadVideoDisplayRatio(url: URL) async -> CGFloat {
@@ -545,5 +696,117 @@ private struct MediaPreviewView: View {
         let width = abs(rect.width)
         let height = abs(rect.height)
         return height == 0 ? (9.0 / 16.0) : (width / height)
+    }
+}
+
+private enum MediaPreviewActionStyle {
+    case secondary
+    case destructive
+
+    var background: Color {
+        switch self {
+        case .secondary:
+            return Color.white.opacity(0.08)
+        case .destructive:
+            return Color.red.opacity(0.22)
+        }
+    }
+
+    var border: Color {
+        switch self {
+        case .secondary:
+            return Color.white.opacity(0.08)
+        case .destructive:
+            return Color.red.opacity(0.28)
+        }
+    }
+}
+
+private struct ZoomablePreviewSurface<Content: View>: View {
+    let content: Content
+
+    @State private var zoomScale: CGFloat = 1.0
+    @State private var baseScale: CGFloat = 1.0
+    @State private var contentOffset: CGSize = .zero
+    @State private var baseOffset: CGSize = .zero
+
+    private let minScale: CGFloat = 1.0
+    private let maxScale: CGFloat = 4.0
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            content
+                .scaleEffect(zoomScale)
+                .offset(contentOffset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .simultaneousGesture(magnificationGesture)
+                .simultaneousGesture(dragGesture)
+                .onTapGesture(count: 2) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        resetZoom()
+                    }
+                }
+
+            if zoomScale > 1.01 {
+                Text(String(format: "%.1fx", zoomScale))
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(Color.black.opacity(0.55))
+                    .clipShape(Capsule(style: .continuous))
+                    .padding(10)
+            }
+        }
+        .clipped()
+    }
+
+    private var magnificationGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                let updated = baseScale * value
+                zoomScale = clamp(updated, min: minScale, max: maxScale)
+                if zoomScale <= 1.01 {
+                    contentOffset = .zero
+                    baseOffset = .zero
+                }
+            }
+            .onEnded { _ in
+                baseScale = zoomScale
+                if zoomScale <= 1.01 {
+                    resetZoom()
+                }
+            }
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                guard zoomScale > 1.01 else { return }
+                contentOffset = CGSize(
+                    width: baseOffset.width + value.translation.width,
+                    height: baseOffset.height + value.translation.height
+                )
+            }
+            .onEnded { _ in
+                guard zoomScale > 1.01 else { return }
+                baseOffset = contentOffset
+            }
+    }
+
+    private func resetZoom() {
+        zoomScale = 1.0
+        baseScale = 1.0
+        contentOffset = .zero
+        baseOffset = .zero
+    }
+
+    private func clamp(_ value: CGFloat, min: CGFloat, max: CGFloat) -> CGFloat {
+        Swift.max(min, Swift.min(value, max))
     }
 }

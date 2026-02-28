@@ -33,6 +33,7 @@ let package = Package(
             ],
             capabilities: [
                 .camera(purposeString: "Use the camera to compose and capture photos and videos."),
+                .microphone(purposeString: "Record audio when capturing videos."),
                 .photoLibrary(purposeString: "Export captured photos and videos to your Photos library.")
             ],
             appCategory: .photography

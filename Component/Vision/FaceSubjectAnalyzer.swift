@@ -60,7 +60,7 @@ final class FaceSubjectAnalyzer {
             return cachedObservationIfFresh(now: now)
         }
 
-        guard let faces = faceRequest.results as? [VNFaceObservation],
+        guard let faces = faceRequest.results,
               let primaryFace = preferredFace(from: faces) else {
             return cachedObservationIfFresh(now: now)
         }
@@ -73,7 +73,7 @@ final class FaceSubjectAnalyzer {
 
         do {
             try landmarksHandler.perform([landmarksRequest])
-            if let landmarkFace = (landmarksRequest.results as? [VNFaceObservation])?.first {
+            if let landmarkFace = landmarksRequest.results?.first {
                 eyeLineCenter = resolvedEyeLineCenter(for: landmarkFace)
             }
         } catch {

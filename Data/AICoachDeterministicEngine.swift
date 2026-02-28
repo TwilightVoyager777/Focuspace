@@ -23,8 +23,8 @@ enum AICoachDeterministicEngine {
         }
         if lower.contains("diagonal") || lower.contains("dynamic") {
             return TemplatePick(
-                templateID: "diagonals",
-                reason: "Diagonal composition matches strong directional energy."
+                templateID: "leading_lines",
+                reason: "Directional energy fits leading lines better now."
             )
         }
         if lower.contains("horizontal") {
@@ -46,7 +46,9 @@ enum AICoachDeterministicEngine {
     }
 
     static func pickTemplate(from snapshot: AICoachFrameSnapshot) -> TemplatePick {
-        let scores = templateScores(for: snapshot)
+        let scores = templateScores(for: snapshot).filter {
+            CompositionTemplateType.isSupportedTemplateID($0.key)
+        }
         guard let best = scores.max(by: { $0.value < $1.value }) else {
             return pickTemplate(from: snapshot.sceneSummary)
         }

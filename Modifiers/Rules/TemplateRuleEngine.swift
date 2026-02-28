@@ -607,26 +607,32 @@ struct TemplateRuleEngine {
     }
 
     private func leadingLinesTarget(for subject: CGPoint) -> CGPoint {
-        let xBias = subject.x - 0.5
-        let horizontalFocus: CGFloat = xBias < 0 ? 0.66 : 0.34
-        let verticalFocus = clamp((subject.y * 0.36) + 0.24, min: 0.26, max: 0.56)
-
-        let vanishingZone = CGPoint(x: horizontalFocus, y: verticalFocus)
-        let laneEntry = CGPoint(
-            x: (horizontalFocus * 0.68) + (subject.x * 0.32),
-            y: (verticalFocus * 0.42) + (subject.y * 0.58)
+        let vanishingZone = CGPoint(x: 0.5, y: 0.34)
+        let lateralOffset: CGFloat = {
+            if abs(subject.x - vanishingZone.x) < 0.08 {
+                return 0
+            }
+            return subject.x < vanishingZone.x ? -0.16 : 0.16
+        }()
+        let receiverZone = CGPoint(
+            x: clamp(vanishingZone.x + lateralOffset, min: 0.24, max: 0.76),
+            y: clamp(max(0.50, (subject.y * 0.56) + 0.20), min: 0.46, max: 0.72)
         )
-        let shoulderGuide = CGPoint(
-            x: xBias < 0 ? 0.46 : 0.54,
-            y: (verticalFocus * 0.76) + (subject.y * 0.24)
+        let corridorGuide = CGPoint(
+            x: clamp((receiverZone.x * 0.62) + (vanishingZone.x * 0.38), min: 0.24, max: 0.76),
+            y: clamp((receiverZone.y * 0.64) + (vanishingZone.y * 0.36), min: 0.40, max: 0.68)
         )
-        let candidates = [vanishingZone, laneEntry, shoulderGuide]
+        let centerGuide = CGPoint(
+            x: clamp((subject.x * 0.26) + (vanishingZone.x * 0.74), min: 0.30, max: 0.70),
+            y: clamp((subject.y * 0.24) + (vanishingZone.y * 0.76), min: 0.34, max: 0.58)
+        )
+        let candidates = [receiverZone, corridorGuide, centerGuide]
         let hardTarget = nearestTarget(to: subject, in: candidates)
         let softTarget = weightedTarget(to: subject, in: candidates, softness: 0.14)
 
         return CGPoint(
-            x: clamp((hardTarget.x * 0.58) + (softTarget.x * 0.42), min: 0.14, max: 0.86),
-            y: clamp((hardTarget.y * 0.58) + (softTarget.y * 0.42), min: 0.18, max: 0.72)
+            x: clamp((hardTarget.x * 0.62) + (softTarget.x * 0.38), min: 0.20, max: 0.80),
+            y: clamp((hardTarget.y * 0.62) + (softTarget.y * 0.38), min: 0.34, max: 0.74)
         )
     }
 
@@ -636,39 +642,54 @@ struct TemplateRuleEngine {
             return heuristicTarget
         }
 
+        let centralVanishX = clamp((analysis.vanishingPoint.x * 0.58) + 0.21, min: 0.38, max: 0.62)
+        let sceneVanish = CGPoint(
+            x: centralVanishX,
+            y: clamp(analysis.vanishingPoint.y, min: 0.24, max: 0.42)
+        )
+        let lateralOffset: CGFloat = {
+            if abs(subject.x - sceneVanish.x) < 0.08 {
+                return 0
+            }
+            return subject.x < sceneVanish.x ? -0.17 : 0.17
+        }()
         let sceneTarget = CGPoint(
-            x: clamp((analysis.vanishingPoint.x * 0.74) + (subject.x * 0.26), min: 0.16, max: 0.84),
-            y: clamp((analysis.vanishingPoint.y * 0.86) + (subject.y * 0.14), min: 0.22, max: 0.62)
+            x: clamp(sceneVanish.x + lateralOffset, min: 0.22, max: 0.78),
+            y: clamp(max(0.48, (subject.y * 0.52) + 0.24), min: 0.46, max: 0.74)
         )
         let convergenceLaneTarget = CGPoint(
-            x: clamp((analysis.vanishingPoint.x * 0.64) + (subject.x * 0.36), min: 0.16, max: 0.84),
-            y: clamp((analysis.vanishingPoint.y * 0.72) + (subject.y * 0.28), min: 0.20, max: 0.68)
+            x: clamp((sceneTarget.x * 0.66) + (sceneVanish.x * 0.34), min: 0.24, max: 0.76),
+            y: clamp((sceneTarget.y * 0.64) + (sceneVanish.y * 0.36), min: 0.40, max: 0.68)
+        )
+        let centerGuide = CGPoint(
+            x: clamp((subject.x * 0.18) + (sceneVanish.x * 0.82), min: 0.34, max: 0.66),
+            y: clamp((subject.y * 0.18) + (sceneVanish.y * 0.82), min: 0.32, max: 0.56)
         )
         let sideBridgeTarget = CGPoint(
-            x: clamp((heuristicTarget.x * 0.52) + (analysis.vanishingPoint.x * 0.48), min: 0.16, max: 0.84),
-            y: clamp((heuristicTarget.y * 0.42) + (analysis.vanishingPoint.y * 0.58), min: 0.20, max: 0.68)
+            x: clamp((heuristicTarget.x * 0.58) + (sceneTarget.x * 0.42), min: 0.22, max: 0.78),
+            y: clamp((heuristicTarget.y * 0.54) + (convergenceLaneTarget.y * 0.46), min: 0.38, max: 0.72)
         )
-        let candidates = [heuristicTarget, sceneTarget, convergenceLaneTarget, sideBridgeTarget]
+        let candidates = [heuristicTarget, sceneTarget, convergenceLaneTarget, centerGuide, sideBridgeTarget]
         let best = bestScoredCandidate(subject: subject, candidates: candidates) { candidate in
-            let convergenceScore = 1 - clamp(abs(candidate.x - analysis.vanishingPoint.x) / 0.34, min: 0, max: 1)
-            let heightScore = 1 - clamp(abs(candidate.y - analysis.vanishingPoint.y) / 0.24, min: 0, max: 1)
-            let movementScore = movementEconomyScore(subject: subject, target: candidate, idealDistance: 0.26)
+            let convergenceScore = 1 - clamp(abs(candidate.x - sceneVanish.x) / 0.28, min: 0, max: 1)
+            let heightScore = 1 - clamp(abs(candidate.y - sceneTarget.y) / 0.22, min: 0, max: 1)
+            let movementScore = movementEconomyScore(subject: subject, target: candidate, idealDistance: 0.20)
             let edgeScore = edgeSafetyScore(for: candidate, margin: 0.14)
             let sideScore = sideConsistencyScore(subject: subject, target: candidate)
             return weightedScore([
-                (convergenceScore, 0.24),
-                (heightScore, 0.18),
-                (movementScore, 0.22),
+                (convergenceScore, 0.20),
+                (heightScore, 0.20),
+                (movementScore, 0.24),
                 (edgeScore, 0.14),
                 (sideScore, 0.12),
                 (analysis.confidence, 0.10)
             ])
         }
-        let soft = weightedTarget(to: subject, in: [sceneTarget, convergenceLaneTarget, heuristicTarget], softness: 0.10)
+        let soft = weightedTarget(to: subject, in: [sceneTarget, convergenceLaneTarget, sideBridgeTarget], softness: 0.10)
 
         return CGPoint(
-            x: clamp((best.x * 0.68) + (soft.x * 0.32), min: 0.14, max: 0.86),
-            y: clamp((best.y * 0.68) + (soft.y * 0.32), min: 0.18, max: 0.72)
+            x: clamp((best.x * 0.70) + (soft.x * 0.30), min: 0.20, max: 0.80),
+            y: clamp((best.y * 0.70) + (soft.y * 0.30), min: 0.34, max: 0.74)
         )
     }
 

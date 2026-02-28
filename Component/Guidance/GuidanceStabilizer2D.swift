@@ -26,6 +26,14 @@ struct GuidanceStabilizer2D {
         lastUpdateTime = 0
     }
 
+    mutating func snapToHold() {
+        stableDx = 0
+        stableDy = 0
+        smoothedDx = 0
+        smoothedDy = 0
+        isHolding = true
+    }
+
     mutating func update(rawDx: CGFloat, rawDy: CGFloat, confidence: CGFloat, now: CFTimeInterval) -> (CGFloat, CGFloat) {
         if lastUpdateTime == 0 {
             lastUpdateTime = now

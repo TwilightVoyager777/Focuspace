@@ -6,50 +6,59 @@ struct SettingsView: View {
     @EnvironmentObject private var debugSettings: DebugSettings
 
     var body: some View {
-        ZStack {
-            Color.black
-                .ignoresSafeArea()
+        GeometryReader { proxy in
+            let usePadLandscapeLayout = UIDevice.current.userInterfaceIdiom == .pad && proxy.size.width > proxy.size.height
+            let topInset: CGFloat = usePadLandscapeLayout ? max(proxy.safeAreaInsets.top, 10) + 24 : 6
 
-            ScrollView {
-                VStack(spacing: 16) {
-                    header
+            ZStack {
+                Color.black
+                    .ignoresSafeArea()
 
-                    SectionCard(title: "Capture") {
-                        ToggleRow(icon: "square.grid.3x3", title: "Preview Grid", isOn: $debugSettings.showGridOverlay)
-                    }
+                ScrollView {
+                    VStack(spacing: 16) {
+                        header(topInset: topInset)
 
-                    SectionTitle(text: "Creative")
-                    NavigationLink {
-                        CompositionLabView(
-                            selectTemplate: onSelectTemplate,
-                            closeLab: { dismiss() }
-                        )
-                    } label: {
-                        CardRow(title: "Composition Lab", icon: "square.grid.2x2")
-                    }
-                    .buttonStyle(.plain)
-                    
-                    SectionCard(title: "Debug") {
-                        ToggleRow(icon: "waveform.path.ecg", title: "Guidance Debug HUD", isOn: $debugSettings.showGuidanceDebugHUD)
-                        ToggleRow(icon: "brain.head.profile", title: "AI Debug HUD", isOn: $debugSettings.showAICoachDebugHUD)
-                        GuidanceModeRow(title: "Guidance UI", selection: $debugSettings.guidanceUIMode)
-                    }
+                        SectionCard(title: "Capture") {
+                            ToggleRow(icon: "square.grid.3x3", title: "Preview Grid", isOn: $debugSettings.showGridOverlay)
+                            GuidanceModeRow(title: "Guidance UI", selection: $debugSettings.guidanceUIMode)
+                        }
 
-                    SectionCard(title: "Foundation Models") {
-                        InfoTextRow(
-                            text: "Foundation Models may run with limited capability in Swift Playgrounds, so some AI features can only operate in a reduced mode. For the full intelligent composition experience, open this project in Xcode and run it on a supported device."
-                        )
+                        SectionTitle(text: "Creative")
+                        NavigationLink {
+                            CompositionLabView(
+                                selectTemplate: onSelectTemplate,
+                                closeLab: { dismiss() }
+                            )
+                        } label: {
+                            CardRow(title: "Composition Lab", icon: "square.grid.2x2")
+                        }
+                        .buttonStyle(.plain)
+                        SectionCard(title: "Creative") {
+                            ToggleRow(icon: "square.on.square.dashed", title: "Template Overlay", isOn: $debugSettings.showTemplateOverlay)
+                        }
+
+                        SectionCard(title: "Foundation Models") {
+                            ToggleRow(icon: "viewfinder.circle", title: "Smart Template Button", isOn: $debugSettings.showSmartTemplateButton)
+                            InfoTextRow(
+                                text: "Smart Template does not rely entirely on Foundation Models. This app always keeps an algorithm-based recommendation fallback, so Smart Template can still work in Swift Playgrounds without Foundation Models. Foundation Models only enhance scene understanding and template recommendation when available. In Swift Playgrounds, Foundation Models may still run with limited capability, so for the full intelligent composition experience, open this project in Xcode and run it on a supported device."
+                            )
+                        }
+
+                        SectionCard(title: "Debug") {
+                            ToggleRow(icon: "waveform.path.ecg", title: "Guidance Debug HUD", isOn: $debugSettings.showGuidanceDebugHUD)
+                            ToggleRow(icon: "brain.head.profile", title: "AI Debug HUD", isOn: $debugSettings.showAICoachDebugHUD)
+                        }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 0)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 6)
-                .padding(.bottom, 24)
             }
         }
         .navigationBarHidden(true)
     }
 
-    private var header: some View {
+    private func header(topInset: CGFloat) -> some View {
         HStack {
             Button {
                 dismiss()
@@ -74,7 +83,7 @@ struct SettingsView: View {
             Color.clear
                 .frame(width: 32, height: 32)
         }
-        .padding(.top, 6)
+        .padding(.top, topInset)
     }
 }
 

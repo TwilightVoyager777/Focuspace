@@ -7,13 +7,18 @@ struct IPadLandscapeOrientationLock: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onAppear {
-                enforceIfNeeded()
+                Task { @MainActor in
+                    enforceIfNeeded()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
-                enforceIfNeeded()
+                Task { @MainActor in
+                    enforceIfNeeded()
+                }
             }
     }
 
+    @MainActor
     private func enforceIfNeeded() {
         guard UIDevice.current.userInterfaceIdiom == .pad else { return }
         guard let windowScene = UIApplication.shared.connectedScenes
@@ -23,9 +28,7 @@ struct IPadLandscapeOrientationLock: ViewModifier {
         }
 
         let preferences = UIWindowScene.GeometryPreferences.iOS(interfaceOrientations: .landscape)
-        windowScene.requestGeometryUpdate(preferences) { _ in
-            // Ignore transient geometry-update failures.
-        }
+        windowScene.requestGeometryUpdate(preferences)
     }
 }
 

@@ -181,7 +181,7 @@ private struct StandardTargetRingView: View {
             )
             .offset(offset)
             .animation(
-                .interpolatingSpring(stiffness: 140, damping: 18),
+                .easeOut(duration: 0.08),
                 value: offset
             )
             .allowsHitTesting(false)
@@ -225,7 +225,7 @@ private struct ScopeTargetMarkerView: View {
             .opacity(isHolding ? 0.50 : 0.95)
             .offset(offset)
             .animation(
-                .interpolatingSpring(stiffness: 140, damping: 18),
+                .easeOut(duration: 0.08),
                 value: offset
             )
             .allowsHitTesting(false)

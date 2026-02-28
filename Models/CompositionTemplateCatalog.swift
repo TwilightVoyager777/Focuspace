@@ -61,8 +61,11 @@ enum TemplateCatalog {
             return CompositionTemplate.mock
         }
 
-        return dtos.map { dto in
-            CompositionTemplate(
+        return dtos.compactMap { dto in
+            guard CompositionTemplateType.isSupportedTemplateID(dto.id) else {
+                return nil
+            }
+            return CompositionTemplate(
                 id: dto.id,
                 name: dto.name,
                 subtitle: dto.subtitle,
@@ -132,25 +135,11 @@ extension CompositionTemplate {
             examples: ["portrait_headroom_01", "portrait_headroom_02"]
         ),
         CompositionTemplate(
-            id: "diagonals",
-            name: "Diagonals",
-            subtitle: "Dynamic tension",
-            philosophy: "Diagonal structure creates energy and motion.",
-            examples: ["diagonals_01", "diagonals_02"]
-        ),
-        CompositionTemplate(
             id: "triangle",
             name: "Triangle Composition",
             subtitle: "Stable geometry",
             philosophy: "Triangles add balance and strong visual structure.",
             examples: ["triangle_01", "triangle_02"]
-        ),
-        CompositionTemplate(
-            id: "layers_fmb",
-            name: "Layers (F-M-B)",
-            subtitle: "Depth & story",
-            philosophy: "Foreground, midground, background create depth and context.",
-            examples: ["layers_fmb_01", "layers_fmb_02"]
         )
     ]
 }

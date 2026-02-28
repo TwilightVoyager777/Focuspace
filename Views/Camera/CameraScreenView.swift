@@ -64,6 +64,8 @@ struct CameraScreenView: View {
                         // iPad landscape: full-screen viewfinder with left/right side rails overlay.
                         let leftPanelWidth = clamp(screenWidth * 0.13, min: 120, max: 176)
                         let rightPanelWidth = clamp(screenWidth * 0.24, min: 210, max: 300)
+                        let topSafeInset = proxy.safeAreaInsets.top
+                        let bottomSafeInset = max(proxy.safeAreaInsets.bottom, 8)
                         
                         ZStack {
                             ViewfinderView(
@@ -102,6 +104,8 @@ struct CameraScreenView: View {
                                 .offset(x: 25)
                             }
                             .frame(width: proxy.size.width, height: proxy.size.height)
+                            .padding(.top, topSafeInset + 8)
+                            .padding(.bottom, bottomSafeInset)
                         }
                         .frame(width: proxy.size.width, height: proxy.size.height)
                     } else {

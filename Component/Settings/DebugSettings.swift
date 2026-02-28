@@ -11,4 +11,6 @@ final class DebugSettings: ObservableObject {
     @Published var showAICoachDebugHUD: Bool = false
     @Published var guidanceUIMode: GuidanceUIMode = .arrowScope
     @Published var showGridOverlay: Bool = true
+    @Published var showTemplateOverlay: Bool = true
+    @Published var showSmartTemplateButton: Bool = true
 }

@@ -80,9 +80,6 @@ struct ViewfinderView: View {
                                 isFrontCamera: cameraController.cameraPosition == .front,
                                 previewFreeze: cameraController.previewFreeze,
                                 onPreviewView: { view in
-                                    cameraController.snapshotProvider = { [weak view] in
-                                        view?.snapshotImage()
-                                    }
                                     cameraController.previewVisibleRectProvider = { [weak view] in
                                         view?.visibleMetadataOutputRect()
                                     }
@@ -138,16 +135,18 @@ struct ViewfinderView: View {
                         )
 
                         if !isSmartComposeThinking, let selectedTemplate {
-                            TemplateOverlayView(
-                                model: TemplateOverlayModel(
-                                    templateId: selectedTemplate,
-                                    strength: cameraController.rawSymmetryStrength,
-                                    targetPoint: cameraController.overlayTargetPoint,
-                                    diagonalType: cameraController.overlayDiagonalType,
-                                    negativeSpaceZone: cameraController.overlayNegativeSpaceZone
+                            if debugSettings.showTemplateOverlay {
+                                TemplateOverlayView(
+                                    model: TemplateOverlayModel(
+                                        templateId: selectedTemplate,
+                                        strength: cameraController.rawSymmetryStrength,
+                                        targetPoint: cameraController.overlayTargetPoint,
+                                        diagonalType: cameraController.overlayDiagonalType,
+                                        negativeSpaceZone: cameraController.overlayNegativeSpaceZone
+                                    )
                                 )
-                            )
-                                .allowsHitTesting(false)
+                                    .allowsHitTesting(false)
+                            }
 
                             switch guidanceUIMode {
                             case .moving:
@@ -228,14 +227,25 @@ struct ViewfinderView: View {
                                 .allowsHitTesting(false)
                         }
 
-                        if cameraController.isCameraSwitching, let snapshot = cameraController.switchSnapshot {
-                            Image(uiImage: snapshot)
-                                .resizable()
-                                .scaledToFill()
-                                .transition(.opacity)
-                                .clipped()
+                        if selectedTemplate != nil && cameraController.isGuidanceReframeNeeded {
+                            Text("Reframe the shot")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.black.opacity(0.72))
+                                .overlay(
+                                    Capsule(style: .continuous)
+                                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                                )
+                                .clipShape(Capsule(style: .continuous))
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                                .padding(.top, cameraController.templateSupportMessage == nil ? 8 : 40)
+                                .padding(.horizontal, 12)
                                 .allowsHitTesting(false)
-                        } else if cameraController.isModeSwitching || cameraController.isCameraSwitching {
+                        }
+
+                        if cameraController.isModeSwitching || cameraController.isCameraSwitching {
                             Rectangle()
                                 .fill(.ultraThinMaterial)
                                 .overlay(Color.black.opacity(0.15))
@@ -438,7 +448,6 @@ struct ViewfinderView: View {
             }
             .onDisappear {
                 UIDevice.current.endGeneratingDeviceOrientationNotifications()
-                cameraController.snapshotProvider = nil
                 cameraController.previewVisibleRectProvider = nil
                 cameraController.stopSession()
             }
@@ -667,17 +676,17 @@ private struct SmartComposeWaveSweepView: View {
                             endPoint: .trailing
                         )
                     )
-                    .frame(width: proxy.size.width * 0.32, height: proxy.size.height * 0.98)
+                    .frame(width: proxy.size.width * 0.14, height: proxy.size.height * 1.04)
                     .offset(x: sweepPhase * proxy.size.width)
-                    .blur(radius: 10)
+                    .blur(radius: 7)
                     .blendMode(.screen)
-                    .opacity(0.82)
+                    .opacity(0.68)
 
                 Capsule(style: .continuous)
                     .fill(Color.white.opacity(0.18))
-                    .frame(width: proxy.size.width * 0.07, height: proxy.size.height * 0.82)
-                    .offset(x: sweepPhase * proxy.size.width * 0.9)
-                    .blur(radius: 5)
+                    .frame(width: proxy.size.width * 0.03, height: proxy.size.height)
+                    .offset(x: sweepPhase * proxy.size.width * 0.92)
+                    .blur(radius: 3.5)
                     .blendMode(.screen)
             }
             .clipped()

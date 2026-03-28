@@ -1,81 +1,254 @@
 # Focuspace
 
-Focuspace is a minimal iOS camera project that explores how visual attention can be guided *before* the shutter is pressed.
+![Swift](https://img.shields.io/badge/Swift-6.0-FA7343?logo=swift&logoColor=white)
+![iOS](https://img.shields.io/badge/iOS-17.0+-000000?logo=apple&logoColor=white)
+![SwiftUI](https://img.shields.io/badge/SwiftUI-5-0D96F6?logo=swift&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-iPhone%20%7C%20iPad-lightgrey?logo=apple)
+![Apple Intelligence](https://img.shields.io/badge/Apple%20Intelligence-iOS%2026+-black?logo=apple)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-Focuspace 是一个极简的 iOS 相机项目，用于探索如何在**按下快门之前**引导用户的视觉注意力。
-
----
-
-## Concept
-
-Most camera apps focus on what happens *after* a photo is taken — filters, edits, and corrections.
-Focuspace focuses on the moment *before* the shot.
-
-大多数相机应用关注的是**拍完之后**：滤镜、修图和校正。
-Focuspace 关注的是**拍照之前的那一刻**。
-
-Instead of teaching photography rules or showing instructions, Focuspace uses subtle visual cues to suggest where attention might be placed within the scene.
-
-它不会教授摄影规则，也不会显示说明文字，而是通过**克制的视觉提示**，暗示画面中一个更合适的注意力位置。
+> A real-time AI composition coach for iPhone and iPad — guides your framing live through a HUD, powered by on-device Vision tracking and Apple Intelligence.
 
 ---
 
-## Interaction Philosophy
+## What It Does
 
-* The camera view is the center of the experience
-* Guidance is visual, not instructional
-* Users are guided, not judged
-* There are no scores, tips, or feedback messages
+Focuspace overlays a live guidance HUD on your camera viewfinder. Tap a subject, choose a composition template, and the app calculates how far your frame is from the ideal composition in real time. An animated reticle and directional arrows tell you exactly how to move the camera. When the frame locks in, **Smart Compose** smoothly tightens the zoom.
 
-交互理念：
+The AI Coach has two tiers:
 
-* 相机画面是体验的核心
-* 通过视觉引导，而不是文字教学
-* 引导用户，而不是评判用户
-* 不存在评分、提示或结果反馈
+| Tier          | Engine                                | Availability                            |
+| ------------- | ------------------------------------- | --------------------------------------- |
+| Deterministic | Rule-based geometry engine            | Always on                               |
+| Semantic      | Apple Intelligence (FoundationModels) | iOS 26+, device with Apple Intelligence |
 
----
-
-## Interface Structure
-
-The interface is intentionally simple:
-
-* A full-screen live camera view
-* A single breathing focus point indicating a suggested framing position
-* Minimal controls placed outside the camera view
-* No visible camera parameters or technical settings
-
-界面结构刻意保持简洁：
-
-* 全屏实时相机画面
-* 一个轻微呼吸的白色引导点，用于提示构图位置
-* 所有控制元素都放在取景画面之外
-* 不显示任何相机参数或专业设置
+On supported devices the on-device language model reads the scene — subject position, drift, structural tags — and picks the most appropriate composition template automatically.
 
 ---
 
-## Design Goals
+## Composition Templates
 
-* Calm and unobtrusive
-* Spatial rather than instructional
-* Familiar, but reduced
-* Focused on perception, not features
+| ID                  | Name                 | Philosophy                                        |
+| ------------------- | -------------------- | ------------------------------------------------- |
+| `rule_of_thirds`    | Rule of Thirds       | Let the subject breathe within the frame          |
+| `golden_spiral`     | Golden Spiral        | Guide attention along a quiet curve               |
+| `center`            | Center Composition   | Centering creates calm, confident focus           |
+| `symmetry`          | Symmetry             | Mirror the scene for a refined order              |
+| `leading_lines`     | Leading Lines        | Use lines to draw focus with intent               |
+| `framing`           | Framing              | Build a visual window for the subject             |
+| `negative_space`    | Negative Space       | Let emptiness amplify the subject                 |
+| `portrait_headroom` | Portrait Headroom    | Place eyes with intent and keep headroom clean    |
+| `triangle`          | Triangle Composition | Triangles add balance and strong visual structure |
 
-设计目标：
+---
 
-* 平静、不打扰
-* 强调空间感，而不是教学
-* 看起来熟悉，但被极度简化
-* 关注感知，而不是功能堆叠
+## Architecture
+
+```
+┌──────────────────────────────────────────────────┐
+│                  CameraScreenView                 │
+│   (adaptive layout: iPhone / iPad portrait /     │
+│    iPad landscape sidebar rails)                  │
+│                                                  │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐  │
+│  │  TopBarView│  │ViewfinderView  │BottomBarView│  │
+│  │ (template  │  │            │  │ (shutter / │  │
+│  │  picker)   │  │  live HUD  │  │  gallery / │  │
+│  └────────────┘  │  overlays  │  │  template) │  │
+│                  └─────┬──────┘  └────────────┘  │
+└────────────────────────┼─────────────────────────┘
+                         │
+          ┌──────────────┼──────────────┐
+          ▼              ▼              ▼
+  ┌──────────────┐ ┌───────────┐ ┌───────────────┐
+  │CameraSession │ │  Frame    │ │  AI Coach     │
+  │Controller    │ │  Guidance │ │  Coordinator  │
+  │              │ │  Coord.   │ │               │
+  │ AVFoundation │ │ Template  │ │ Deterministic │
+  │ CameraFilter │ │ RuleEngine│ │ Engine        │
+  │ SmartCompose │ │ Guidance  │ │ +             │
+  │ StateCtrl    │ │ Stabilizer│ │ FoundationModel│
+  └──────┬───────┘ └─────┬─────┘ │ (iOS 26+)    │
+         │               │       └───────────────┘
+         ▼               ▼
+  ┌──────────────┐ ┌───────────────────────────┐
+  │ Vision Stack │ │   Guidance HUD Views      │
+  │              │ │                           │
+  │ VisionObject │ │ Arrow / Reticle / Dot /   │
+  │ Tracker      │ │ Crosshair / Scope HUDs    │
+  │ FaceSubject  │ │ TemplateOverlayEngine     │
+  │ Analyzer     │ │ GridOverlay / LevelOverlay│
+  └──────────────┘ └───────────────────────────┘
+```
 
 ---
 
-## Status
+## Directory Structure
 
-This project is an ongoing exploration and prototype.
-Details, features, and implementation are subject to change.
-
-这是一个持续探索中的原型项目。
-具体实现和功能仍在不断演进中。
+```
+Focuspace.swiftpm/
+├── Package.swift                   # Swift Package / iOS app manifest
+├── Views/
+│   ├── System/
+│   │   ├── MyApp.swift             # @main entry point
+│   │   ├── ContentView.swift       # Root view → CameraScreenView
+│   │   └── SettingsView.swift
+│   ├── Camera/
+│   │   ├── CameraScreenView.swift  # Adaptive layout (iPhone / iPad)
+│   │   ├── ViewfinderView.swift    # Live preview + HUD mount point
+│   │   ├── TopBarView.swift        # Template picker rail
+│   │   └── BottomBarView.swift     # Shutter, zoom, gallery, SmartCompose
+│   ├── Guidance/                   # All HUD overlay views
+│   │   ├── ArrowGuidanceHUDView.swift
+│   │   ├── GuidanceReticleHUDView.swift
+│   │   ├── GuidanceCrosshairView.swift
+│   │   ├── GuidanceLayeredDotHUDView.swift
+│   │   ├── CenterGuidanceHUDView.swift
+│   │   ├── BreathingDotView.swift
+│   │   ├── AICoachDebugHUDView.swift
+│   │   └── GuidanceDebugHUDView.swift
+│   ├── Overlays/
+│   │   ├── TemplateOverlayEngine.swift   # Renders composition grid lines
+│   │   ├── TemplateOverlayView.swift
+│   │   ├── GridOverlayView.swift
+│   │   ├── LevelOverlay.swift
+│   │   └── FilteredPreviewOverlayView.swift
+│   ├── Templates/
+│   │   ├── CompositionLabView.swift      # Browse templates with examples
+│   │   ├── TemplateRowCardView.swift
+│   │   └── TemplateRowView.swift
+│   └── Library/
+│       ├── MediaLibraryView.swift
+│       └── GalleryView.swift
+├── Data/
+│   ├── CameraService.swift               # AVCaptureSession setup
+│   ├── CameraSessionController.swift     # Main camera state controller
+│   ├── CameraFilterController.swift      # Live filter pipeline
+│   ├── LiveFilterPreviewRenderer.swift
+│   ├── FrameGuidanceCoordinator.swift    # Per-frame composition eval
+│   ├── AICoachCoordinator.swift          # AI Coach (deterministic + FM)
+│   ├── AICoachDeterministicEngine.swift
+│   ├── AICoachModels.swift
+│   ├── AICoachStructuralTagBuilder.swift
+│   ├── SmartComposeStateController.swift # Auto-zoom when locked
+│   ├── SmartComposeRecommendationResolver.swift
+│   ├── CompositionOverlayController.swift
+│   ├── CapturedPhotoProcessor.swift
+│   ├── RecordingStateController.swift
+│   ├── LocalMediaLibrary.swift
+│   ├── DeviceControls.swift
+│   └── templates.json                    # Composition template definitions
+├── Models/
+│   ├── CompositionTemplateCatalog.swift  # Loads templates.json
+│   ├── TemplateItem.swift
+│   ├── TemplateRegistry.swift
+│   ├── MediaItem.swift
+│   └── ToolItem.swift
+├── Component/
+│   ├── Guidance/                         # GuidanceStabilizer, contracts
+│   ├── Tracking/
+│   │   ├── VisionObjectTracker.swift     # Vision NCC object tracking
+│   │   └── SubjectTrackerNCC.swift
+│   ├── Vision/
+│   │   └── FaceSubjectAnalyzer.swift     # Face observation for headroom
+│   ├── CameraPreviewView.swift
+│   ├── ShutterButtonView.swift
+│   ├── RulerControl.swift
+│   ├── BottomControlsView.swift
+│   └── Settings/DebugSettings.swift
+├── Modifiers/
+│   ├── LivePreviewCropModifier.swift
+│   └── Rules/
+│       ├── TemplateRuleEngine.swift      # Per-template geometry rules
+│       ├── CenterRuleEngine.swift
+│       ├── SymmetryRuleEngine.swift
+│       └── TemplateRuleTypes.swift
+└── Assets.xcassets/
+```
 
 ---
+
+## Requirements
+
+| Item               | Requirement                                                  |
+| ------------------ | ------------------------------------------------------------ |
+| Xcode              | 16+ or Swift Playgrounds 4.5+                                |
+| iOS                | 17.0+                                                        |
+| Device             | iPhone or iPad with a rear camera                            |
+| Apple Intelligence | iOS 26+ device (optional — falls back to deterministic engine) |
+
+> The app runs fully offline. Apple Intelligence enhances template selection but is never required.
+
+---
+
+## Quick Start
+
+### Swift Playgrounds
+
+1. Open `Focuspace.swiftpm` in **Swift Playgrounds 4.5+** on iPad or Mac.
+2. Tap **Run**.
+
+### Xcode
+
+```bash
+open /path/to/Focuspace.swiftpm
+```
+
+Select a physical device (camera access is required), then press **⌘R**.
+
+> Simulator does not provide a real camera feed — run on device for full functionality.
+
+---
+
+## How the AI Coach Works
+
+```
+Each camera frame
+       │
+       ▼
+VisionObjectTracker (Vision NCC)
+  └─ subject position + confidence
+       │
+       ▼
+FaceSubjectAnalyzer
+  └─ face bounding box for portrait headroom
+       │
+       ▼
+FrameGuidanceCoordinator
+  └─ TemplateRuleEngine → raw dx/dy guidance vector
+  └─ GuidanceStabilizer2D → smoothed, noise-filtered vector
+  └─ isHolding flag (true when frame is well-aligned)
+       │
+       ├──► HUD Views (arrow, reticle, dot, crosshair)
+       │
+       └──► AICoachCoordinator
+              ├─ AICoachDeterministicEngine
+              │   always available — geometry-based scoring
+              └─ FoundationModelCoachRuntime (iOS 26+)
+                  on-device LLM reads scene summary,
+                  structural tags, drift → picks best template
+```
+
+**Smart Compose** watches the `isHolding` flag. After several consecutive aligned frames, it gradually tightens the zoom to finalize the composition automatically.
+
+---
+
+## Tech Stack
+
+| Layer               | Technology                                      |
+| ------------------- | ----------------------------------------------- |
+| UI Framework        | SwiftUI 5                                       |
+| Camera              | AVFoundation                                    |
+| Subject Tracking    | Vision (VNSequenceRequestHandler, NCC)          |
+| Face Detection      | Vision (VNDetectFaceRectanglesRequest)          |
+| AI Coach (base)     | Deterministic geometry engine                   |
+| AI Coach (enhanced) | FoundationModels / Apple Intelligence (iOS 26+) |
+| Overlays            | SwiftUI Canvas + GeometryReader                 |
+| Media               | Photos / PhotosUI                               |
+| Orientation Lock    | UIWindowScene                                   |
+
+---
+
+## License
+
+[MIT](./LICENSE) © 2025 Focuspace
